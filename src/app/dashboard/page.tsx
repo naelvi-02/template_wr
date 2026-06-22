@@ -1062,10 +1062,11 @@ export default function App() {
                 disabled={doneFiles.length === 0}
                 onClick={() => {
                   doneFiles.forEach((file, index) => {
-                    if (file.resultUrl) {
+                    const url = file.resultUrl;
+                    if (url) {
                       setTimeout(() => {
                         const a = document.createElement("a");
-                        a.href = file.resultUrl;
+                        a.href = url;
                         a.download = `WR_${file.name}`;
                         document.body.appendChild(a);
                         a.click();
