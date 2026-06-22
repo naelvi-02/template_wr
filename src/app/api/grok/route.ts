@@ -1,4 +1,23 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
+
+// Generate a random statsig ID (base64 encoded fake TypeError)
+function genStatsigID() {
+  const letters = "abcdefghijklmnopqrstuvwxyz";
+  const alphaNum = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let msg = "";
+  
+  if (Math.random() < 0.5) {
+    let b = "";
+    for (let i = 0; i < 5; i++) b += alphaNum[Math.floor(Math.random() * alphaNum.length)];
+    msg = `e:TypeError: Cannot read properties of null (reading 'children['${b}']')`;
+  } else {
+    let b = "";
+    for (let i = 0; i < 10; i++) b += letters[Math.floor(Math.random() * letters.length)];
+    msg = `e:TypeError: Cannot read properties of undefined (reading '${b}')`;
+  }
+  return Buffer.from(msg).toString('base64');
+}
 
 export async function POST(req: Request) {
   try {
@@ -9,10 +28,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "GROK_COOKIES is not set in .env" }, { status: 500 });
     }
 
+    const userAgent = process.env.GROK_USER_AGENT || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
+    const xaiRequestId = crypto.randomUUID();
+    const statsigId = genStatsigID();
+
+    // Generate random sentry trace (32 hex chars - 16 hex chars - 0)
+    const sentryTraceId = crypto.randomBytes(16).toString('hex');
+    const sentrySpanId = crypto.randomBytes(8).toString('hex');
+    const sentryTrace = `${sentryTraceId}-${sentrySpanId}-0`;
+
     const headers = {
       'accept': '*/*',
       'accept-language': 'en-US,en;q=0.9',
-      'baggage': 'sentry-environment=production,sentry-release=c415d1eb1fd613dfe9cf9703d616d9e89738ee84,sentry-public_key=b311e0f2690c81f25e2c4cf6d4f7ce1c,sentry-trace_id=605ba195bccbc4347d46714314cccdaa,sentry-org_id=4508179396558848,sentry-sampled=false,sentry-sample_rand=0.7972865875643818,sentry-sample_rate=0',
+      'baggage': `sentry-environment=production,sentry-release=c415d1eb1fd613dfe9cf9703d616d9e89738ee84,sentry-public_key=b311e0f2690c81f25e2c4cf6d4f7ce1c,sentry-trace_id=${sentryTraceId},sentry-org_id=4508179396558848,sentry-sampled=false,sentry-sample_rand=${Math.random()},sentry-sample_rate=0`,
       'content-type': 'application/json',
       'cookie': grokCookies,
       'origin': 'https://grok.com',
@@ -25,21 +53,17 @@ export async function POST(req: Request) {
       'sec-fetch-mode': 'cors',
       'sec-fetch-site': 'same-origin',
       'sec-gpc': '1',
-      'sentry-trace': '605ba195bccbc4347d46714314cccdaa-a6d6adc70376ad27-0',
-      'traceparent': '00-9dc96d692a485d3632a700df9179d529-a8775f33afe85adf-00',
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
-      'x-statsig-id': 'FXBFTJiJsDmzSb6x3sND6JqHochHY13SdazMr+TwYEEKSG1CjR9Xs+sqmG5rzFqW9odB/BAJoKHdKZcV0sLVJuJA0gANFg',
-      'x-xai-request-id': '555d72bd-62d0-4e74-b347-374643e02fa7'
+      'sentry-trace': sentryTrace,
+      'traceparent': `00-${sentryTraceId}-${sentrySpanId}-00`,
+      'user-agent': userAgent,
+      'x-statsig-id': statsigId,
+      'x-xai-request-id': xaiRequestId
     };
 
-    // We will try inserting the image as a base64 string directly into imageAttachments, 
-    // or as a data URL, to see if Grok accepts it without a separate upload RPC.
-    // If it fails, the error message from Grok will help us debug.
     const payload = {
       temporary: false,
       message: prompt,
       fileAttachments: [],
-      // TRY 1: Pass base64 data URL directly
       imageAttachments: imageBase64 ? [imageBase64] : [],
       disableSearch: false,
       enableImageGeneration: false,
@@ -69,8 +93,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Failed to fetch from Grok", details: errorText }, { status: response.status });
     }
 
-    // Grok stream response consists of JSON lines
-    // We will parse the stream and extract the complete response.
     const text = await response.text();
     const lines = text.split('\n').filter(line => line.trim() !== '');
     
@@ -86,17 +108,14 @@ export async function POST(req: Request) {
         const modelResponse = data?.result?.response?.modelResponse?.message;
         if (modelResponse) {
            completeMessage = modelResponse;
-           break; // Got the final full message
+           break; 
         }
         
-        // Accumulate tokens if streaming is handled this way
         const token = data?.result?.response?.token;
         if (token) {
            completeMessage += token;
         }
-      } catch (e) {
-        // ignore parse error on partial lines
-      }
+      } catch (e) {}
     }
 
     return NextResponse.json({ success: true, message: completeMessage });
