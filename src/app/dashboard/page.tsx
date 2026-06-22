@@ -444,13 +444,46 @@ export default function App() {
       return next;
     });
 
-    newEntries.forEach((entry, i) => {
-      setTimeout(() => {
-        const category = AI_CATEGORIES[Math.floor(Math.random() * AI_CATEGORIES.length)];
+    newEntries.forEach(async (entry, i) => {
+      try {
+        // Convert File to Base64
+        const reader = new FileReader();
+        reader.readAsDataURL(entry.file);
+        reader.onload = async () => {
+          const base64Image = reader.result as string;
+
+          const prompt = "Please analyze this jewelry image and reply with ONLY ONE of the following categories: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. Do not say anything else.";
+
+          const response = await fetch("/api/grok", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt, imageBase64: base64Image }),
+          });
+
+          let category = "Ring"; // Fallback
+          if (response.ok) {
+            const data = await response.json();
+            const reply = data.message?.trim() || "";
+            // Find a matching category in the reply
+            const matched = AI_CATEGORIES.find(c => reply.toLowerCase().includes(c.toLowerCase()));
+            if (matched) category = matched;
+          }
+
+          setFiles((prev) =>
+            prev.map((f) => f.id === entry.id ? { ...f, category, detecting: false } : f)
+          );
+        };
+        reader.onerror = () => {
+          // Fallback if read fails
+          setFiles((prev) =>
+            prev.map((f) => f.id === entry.id ? { ...f, category: "Ring", detecting: false } : f)
+          );
+        };
+      } catch (e) {
         setFiles((prev) =>
-          prev.map((f) => f.id === entry.id ? { ...f, category, detecting: false } : f)
+          prev.map((f) => f.id === entry.id ? { ...f, category: "Ring", detecting: false } : f)
         );
-      }, 900 + i * 280);
+      }
     });
   }, [activeId]);
 
