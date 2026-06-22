@@ -414,18 +414,18 @@ export default function App() {
       // 5. Draw Texts (MP & Karat)
       
       // MP text at bottom left
-      ctx.font = "600 41px Lora, serif"; // 20pt at 150 DPI
+      ctx.font = "600 45px Lora, serif"; 
       ctx.fillStyle = "#ec1e24";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(`MP ${target.mp}`, 90, 1160); 
+      ctx.fillText(`MP ${target.mp}`, 90, 1135); 
 
       // Karat text inside existing circle
-      const karatCx = 675; 
-      const karatCy = 1065;
+      const karatCx = 740; 
+      const karatCy = 1092;
       
       // Draw Karat text
-      ctx.font = "600 68px Lora, serif"; // 33pt at 150 DPI
+      ctx.font = "600 72px Lora, serif";
       ctx.fillStyle = "#ffffff";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
