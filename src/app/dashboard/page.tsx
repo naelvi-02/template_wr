@@ -412,25 +412,22 @@ export default function App() {
       }
 
       // 5. Draw Texts (MP & Karat)
+      // Font sizes and colors as requested by user
+      
       // MP text at bottom left
-      ctx.font = "bold 46px Inter, sans-serif";
-      ctx.fillStyle = "#e53e3e";
+      ctx.font = "600 20pt Lora, serif";
+      ctx.fillStyle = "#ec1e24";
       ctx.textAlign = "left";
-      ctx.fillText(`MP ${target.mp}`, 100, finalCanvas.height - 70);
+      ctx.fillText(`MP ${target.mp}`, 100, finalCanvas.height - 40); // moved lower from -70 to -40
 
-      // Karat Circle at bottom center
-      const karatCx = finalCanvas.width / 2;
+      // Karat text inside existing circle
+      // Estimated center of existing circle based on screenshot offset
+      const karatCx = 470; 
       const karatCy = finalCanvas.height - 110;
       
-      // Draw red circle
-      ctx.beginPath();
-      ctx.arc(karatCx, karatCy, 75, 0, Math.PI * 2);
-      ctx.fillStyle = "#e53e3e";
-      ctx.fill();
-      
-      // Draw Karat text inside circle
-      ctx.font = "bold 50px Inter, sans-serif";
-      ctx.fillStyle = "white";
+      // Draw Karat text
+      ctx.font = "600 33pt Lora, serif";
+      ctx.fillStyle = "#ffffff";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(target.karat, karatCx, karatCy);
