@@ -416,10 +416,10 @@ export default function App() {
       ctx.font = "bold 46px Inter, sans-serif";
       ctx.fillStyle = "#e53e3e";
       ctx.textAlign = "left";
-      ctx.fillText(`MP ${target.mp}`, 120, finalCanvas.height - 85);
+      ctx.fillText(`MP ${target.mp}`, 100, finalCanvas.height - 70);
 
       // Karat Circle at bottom center
-      const karatCx = (finalCanvas.width / 2) - 40;
+      const karatCx = finalCanvas.width / 2;
       const karatCy = finalCanvas.height - 110;
       
       // Draw red circle
@@ -428,7 +428,7 @@ export default function App() {
       ctx.fillStyle = "#e53e3e";
       ctx.fill();
       
-      // Draw 8K text inside circle
+      // Draw Karat text inside circle
       ctx.font = "bold 50px Inter, sans-serif";
       ctx.fillStyle = "white";
       ctx.textAlign = "center";
