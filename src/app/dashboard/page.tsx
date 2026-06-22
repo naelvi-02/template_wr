@@ -537,8 +537,8 @@ export default function App() {
           // Draw user image
           const w = userImg.width * (scale / 100);
           const h = userImg.height * (scale / 100);
-          const x = canvas.width / 2 - w / 2 + position.x;
-          const y = canvas.height / 2 - h / 2 + position.y;
+          const x = canvas.width / 2 - w / 2 + posX;
+          const y = canvas.height / 2 - h / 2 + posY;
           ctx.drawImage(userImg, x, y, w, h);
 
           // Draw template overlay
