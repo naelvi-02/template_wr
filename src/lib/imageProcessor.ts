@@ -89,5 +89,5 @@ export async function loadAndProcessImage(asBlob: Blob): Promise<{ canvas: HTMLC
   
   URL.revokeObjectURL(bgRemovedUrl);
 
-  return { canvas: croppedCanvas, bbox };
+  return { canvas: croppedCanvas, bbox, originalWidth: img.width, originalHeight: img.height };
 }

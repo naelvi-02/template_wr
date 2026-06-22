@@ -25,6 +25,7 @@ interface JewelryFile {
   detecting: boolean;
   status: FileStatus;
   resultUrl: string | null;
+  claspBbox?: { cx: number, cy: number, w: number, h: number } | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -302,7 +303,36 @@ export default function App() {
             if (matched) category = matched;
           }
 
-          setFiles((prev) => prev.map((f) => f.id === entry.id ? { ...f, category, detecting: false } : f));
+          let claspBbox = null;
+          if ((category === "Necklace" || category === "Bracelet") && entry.detailFile) {
+            try {
+              const detailReader = new FileReader();
+              detailReader.readAsDataURL(entry.detailFile);
+              const detailBase64 = await new Promise<string>((res) => {
+                detailReader.onload = () => res(detailReader.result as string);
+              });
+              
+              const claspPrompt = `Find the main jewelry clasp (pengait) in this image. Return ONLY a valid JSON object with the center coordinates and dimensions as a fraction of the image size (0.0 to 1.0), like this: {"cx": 0.5, "cy": 0.5, "w": 0.3, "h": 0.3}. Output raw JSON only, no markdown.`;
+              const claspResponse = await fetch("/api/grok", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt: claspPrompt, imageBase64: detailBase64 }),
+              });
+              
+              if (claspResponse.ok) {
+                const data = await claspResponse.json();
+                const reply = data.message || "";
+                const match = reply.match(/\{[\s\S]*\}/);
+                if (match) {
+                  claspBbox = JSON.parse(match[0]);
+                }
+              }
+            } catch (e) {
+              console.error("Failed to detect clasp:", e);
+            }
+          }
+
+          setFiles((prev) => prev.map((f) => f.id === entry.id ? { ...f, category, claspBbox, detecting: false } : f));
         };
         reader.onerror = () => setFiles((prev) => prev.map((f) => f.id === entry.id ? { ...f, category: "Ring", detecting: false } : f));
       } catch (e) {
@@ -324,9 +354,10 @@ export default function App() {
     try {
       const { canvas: mainCropped, bbox: mainBbox } = await loadAndProcessImage(target.file);
       let detailCropped: HTMLCanvasElement | null = null;
+      let resDetails: any = null;
       if (target.detailFile) {
-        const res = await loadAndProcessImage(target.detailFile);
-        detailCropped = res.canvas;
+        resDetails = await loadAndProcessImage(target.detailFile);
+        detailCropped = resDetails.canvas;
       }
 
       const templateImg = new Image();
@@ -403,11 +434,47 @@ export default function App() {
         ctx.arc(circleX, circleY, circleRadius - 5, 0, Math.PI * 2);
         ctx.clip();
         
-        // Scale detail to fit nicely
-        const detScale = Math.min((circleRadius * 1.8) / detailCropped.width, (circleRadius * 1.8) / detailCropped.height);
-        const detW = detailCropped.width * detScale;
-        const detH = detailCropped.height * detScale;
-        ctx.drawImage(detailCropped, circleX - detW / 2, circleY - detH / 2, detW, detH);
+        let detW = 0;
+        let detH = 0;
+        let cropX = 0;
+        let cropY = 0;
+        let cropW = detailCropped.width;
+        let cropH = detailCropped.height;
+
+        if (target.claspBbox) {
+          // target.claspBbox has {cx, cy, w, h} in 0..1 scale relative to original image
+          // resDetails has { originalWidth, originalHeight, bbox }
+          // We need to map to the detailCropped canvas
+          const origW = resDetails.originalWidth;
+          const origH = resDetails.originalHeight;
+          const absCx = target.claspBbox.cx * origW;
+          const absCy = target.claspBbox.cy * origH;
+          const absW = target.claspBbox.w * origW;
+          const absH = target.claspBbox.h * origH;
+
+          // Map to cropped canvas
+          const croppedCx = absCx - resDetails.bbox.x;
+          const croppedCy = absCy - resDetails.bbox.y;
+          
+          // Use a square crop area around the clasp
+          const size = Math.max(absW, absH) * 1.5; // add 50% padding
+          cropX = croppedCx - size / 2;
+          cropY = croppedCy - size / 2;
+          cropW = size;
+          cropH = size;
+        }
+
+        // Scale crop area to fit nicely
+        const detScale = (circleRadius * 2) / Math.max(cropW, cropH);
+        detW = cropW * detScale;
+        detH = cropH * detScale;
+
+        // Draw cropped detail image into the circle
+        ctx.drawImage(
+          detailCropped, 
+          cropX, cropY, cropW, cropH, 
+          circleX - detW / 2, circleY - detH / 2, detW, detH
+        );
         ctx.restore();
       }
 
