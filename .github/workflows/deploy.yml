@@ -21,11 +21,13 @@ jobs:
         password: ${{ secrets.VPS_PASSWORD }}
         port: ${{ secrets.VPS_PORT }}
         script: |
+          set -e
           if [ ! -d "~/template_wr" ]; then
             git clone https://github.com/naelvi-02/template_wr.git ~/template_wr
           fi
           cd ~/template_wr
-          git pull origin main
+          git fetch origin
+          git reset --hard origin/main
           if ! command -v pm2 &> /dev/null; then
             npm install -g pm2
           fi
