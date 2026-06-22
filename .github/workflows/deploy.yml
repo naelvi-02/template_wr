@@ -22,10 +22,10 @@ jobs:
         port: ${{ secrets.VPS_PORT }}
         script: |
           set -e
-          if [ ! -d "~/template_wr" ]; then
-            git clone https://github.com/naelvi-02/template_wr.git ~/template_wr
+          if [ ! -d "$HOME/template_wr" ]; then
+            git clone https://github.com/naelvi-02/template_wr.git "$HOME/template_wr"
           fi
-          cd ~/template_wr
+          cd "$HOME/template_wr"
           git fetch origin
           git reset --hard origin/main
           if ! command -v pm2 &> /dev/null; then
