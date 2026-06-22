@@ -448,7 +448,7 @@ export default function App() {
       try {
         // Convert File to Base64
         const reader = new FileReader();
-        reader.readAsDataURL(entry.originalFile);
+        reader.readAsDataURL(imageFiles[i]);
         reader.onload = async () => {
           const base64Image = reader.result as string;
 
