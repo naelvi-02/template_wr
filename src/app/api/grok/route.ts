@@ -37,38 +37,25 @@ export async function POST(req: Request) {
     // If it fails, the error message from Grok will help us debug.
     const payload = {
       temporary: false,
-      modelName: "grok-3", // or grok-vision
       message: prompt,
       fileAttachments: [],
       // TRY 1: Pass base64 data URL directly
       imageAttachments: imageBase64 ? [imageBase64] : [],
-      disableSearch: False,
-      enableImageGeneration: False,
-      returnImageBytes: False,
-      returnRawGrokInXaiRequest: False,
-      enableImageStreaming: False,
+      disableSearch: false,
+      enableImageGeneration: false,
+      returnImageBytes: false,
+      returnRawGrokInXaiRequest: false,
+      enableImageStreaming: false,
       imageGenerationCount: 0,
-      forceConcise: False,
+      forceConcise: false,
       toolOverrides: {},
-      enableSideBySide: True,
-      isPreset: False,
-      sendFinalMetadata: True,
+      enableSideBySide: true,
+      isPreset: false,
+      sendFinalMetadata: true,
       customInstructions: "",
       deepsearchPreset: "",
-      isReasoning: False
+      isReasoning: false
     };
-
-    // Fix boolean literals for JS
-    payload.disableSearch = false;
-    payload.enableImageGeneration = false;
-    payload.returnImageBytes = false;
-    payload.returnRawGrokInXaiRequest = false;
-    payload.enableImageStreaming = false;
-    payload.forceConcise = false;
-    payload.enableSideBySide = true;
-    payload.isPreset = false;
-    payload.sendFinalMetadata = true;
-    payload.isReasoning = false;
 
     const response = await fetch("https://grok.com/rest/app-chat/conversations/new", {
       method: "POST",
