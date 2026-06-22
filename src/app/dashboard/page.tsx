@@ -289,7 +289,7 @@ export default function App() {
           const base64Image = reader.result as string;
           const prompt = "Please analyze this jewelry image and reply with ONLY ONE of the following categories: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. Do not say anything else.";
 
-          const response = await fetch("/api/grok", {
+          const response = await fetch("/api/ai", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ prompt, imageBase64: base64Image }),
@@ -313,7 +313,7 @@ export default function App() {
               });
               
               const claspPrompt = `Find the main jewelry clasp (pengait) in this image. Return ONLY a valid JSON object with the center coordinates and dimensions as a fraction of the image size (0.0 to 1.0), like this: {"cx": 0.5, "cy": 0.5, "w": 0.3, "h": 0.3}. Output raw JSON only, no markdown.`;
-              const claspResponse = await fetch("/api/grok", {
+              const claspResponse = await fetch("/api/ai", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ prompt: claspPrompt, imageBase64: detailBase64 }),
