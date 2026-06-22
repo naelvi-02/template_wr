@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Inter } from "next/font/google";
 import { NextAuthProvider } from "./components/SessionProvider";
+
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Wahyu Redjo Template",
@@ -14,7 +17,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased bg-gray-50 text-gray-900">
+      <body className={`${inter.className} antialiased bg-gray-50 text-gray-900`}>
         <NextAuthProvider>
           {children}
         </NextAuthProvider>
