@@ -416,10 +416,10 @@ export default function App() {
       ctx.font = "bold 46px Inter, sans-serif";
       ctx.fillStyle = "#e53e3e";
       ctx.textAlign = "left";
-      ctx.fillText(`MP ${target.mp}`, 100, finalCanvas.height - 70);
+      ctx.fillText(`MP ${target.mp}`, 120, finalCanvas.height - 85);
 
       // Karat Circle at bottom center
-      const karatCx = finalCanvas.width / 2;
+      const karatCx = (finalCanvas.width / 2) - 40;
       const karatCy = finalCanvas.height - 110;
       
       // Draw red circle
@@ -442,7 +442,7 @@ export default function App() {
     }
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     const targets = files.filter((f) => !f.detecting && f.status !== "done");
     if (!targets.length || generating) return;
 
@@ -452,23 +452,21 @@ export default function App() {
 
     setFiles((prev) => prev.map((f) => targets.find((t) => t.id === f.id) ? { ...f, status: "queued", resultUrl: null } : f));
 
-    targets.forEach((target, i) => {
-      setTimeout(async () => {
-        setFiles((prev) => prev.map((f) => f.id === target.id ? { ...f, status: "processing" } : f));
-        
-        const resultUrl = await drawComposition(target, 100, 0, 0);
-        const success = !!resultUrl;
-        
-        setFiles((prev) => prev.map((f) => f.id === target.id ? { ...f, status: success ? "done" : "error", resultUrl: success ? resultUrl : null } : f));
-        
-        setProcessedCount(prev => {
-          const doneIdx = prev + 1;
-          setProgress(Math.round((doneIdx / targets.length) * 100));
-          if (doneIdx >= targets.length) setTimeout(() => setGenerating(false), 400);
-          return doneIdx;
-        });
-      }, i * 2000);
-    });
+    let doneCount = 0;
+    for (const target of targets) {
+      setFiles((prev) => prev.map((f) => f.id === target.id ? { ...f, status: "processing" } : f));
+      
+      const resultUrl = await drawComposition(target, 100, 0, 0);
+      const success = !!resultUrl;
+      
+      setFiles((prev) => prev.map((f) => f.id === target.id ? { ...f, status: success ? "done" : "error", resultUrl: success ? resultUrl : null } : f));
+      
+      doneCount++;
+      setProgress(Math.round((doneCount / targets.length) * 100));
+      setProcessedCount(doneCount);
+    }
+    
+    setTimeout(() => setGenerating(false), 400);
   };
 
   // Preview Updater
