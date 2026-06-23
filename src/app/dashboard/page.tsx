@@ -505,17 +505,18 @@ export default function Dashboard() {
         let cropW = detailCropped.width;
         let cropH = detailCropped.height;
 
+        // CENTER LOCK: Always center the crop on the original detail image
+        const origW = resDetails.originalWidth;
+        const origH = resDetails.originalHeight;
+        const absCx = origW / 2;
+        const absCy = origH / 2;
+        const croppedCx = absCx - resDetails.bbox.x;
+        const croppedCy = absCy - resDetails.bbox.y;
+
         if (target.claspBbox) {
-          // target.claspBbox has {cx, cy, w, h} in 0..1 scale relative to original image
-          // resDetails has { originalWidth, originalHeight, bbox }
-          // We need to map to the detailCropped canvas
-          const origW = resDetails.originalWidth;
-          const origH = resDetails.originalHeight;
-          const absCx = target.claspBbox.cx * origW;
-          const absCy = target.claspBbox.cy * origH;
+          // Use AI ONLY for sizing (w and h), ignore its cx and cy
           const absW = target.claspBbox.w * origW;
           const absH = target.claspBbox.h * origH;
-
           // Map to cropped canvas
           const croppedCx = absCx - resDetails.bbox.x;
           const croppedCy = absCy - resDetails.bbox.y;
@@ -529,6 +530,13 @@ export default function Dashboard() {
             size = minSize;
           }
 
+          cropX = croppedCx - size / 2;
+          cropY = croppedCy - size / 2;
+          cropW = size;
+          cropH = size;
+        } else {
+          // FALLBACK: If AI completely fails, zoom into 40% of the center image
+          let size = Math.max(origW, origH) * 0.4;
           cropX = croppedCx - size / 2;
           cropY = croppedCy - size / 2;
           cropW = size;
