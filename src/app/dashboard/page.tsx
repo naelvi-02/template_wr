@@ -520,7 +520,8 @@ export default function Dashboard() {
           const croppedCx = absCx - resDetails.bbox.x;
           const croppedCy = absCy - resDetails.bbox.y;
           
-          let size = Math.max(absW, absH) * 2.5; // padding besar agar zoom-out dan tidak terpotong
+          const isNecklaceInset = target.category === "Necklace";
+          let size = Math.max(absW, absH) * (isNecklaceInset ? 2.5 : 1.35); // padding besar untuk kalung, normal untuk gelang
           
           // Enforce a minimum zoom size so it doesn't break if AI returns 0
           const minSize = Math.max(origW * 0.08, 150);
