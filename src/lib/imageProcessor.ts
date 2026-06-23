@@ -48,7 +48,7 @@ export function getBoundingBox(canvas: HTMLCanvasElement) {
   return { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
 }
 
-export async function loadAndProcessImage(asBlob: Blob): Promise<{ canvas: HTMLCanvasElement, bbox: any }> {
+export async function loadAndProcessImage(asBlob: Blob): Promise<{ canvas: HTMLCanvasElement, bbox: any, originalWidth: number, originalHeight: number }> {
   // Use imgly for BG removal
   // This will be called from the frontend component
   const { removeBackground } = await import("@imgly/background-removal");
