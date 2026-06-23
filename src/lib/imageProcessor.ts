@@ -53,7 +53,7 @@ export async function loadAndProcessImage(asBlob: Blob): Promise<{ canvas: HTMLC
   // This will be called from the frontend component
   const { removeBackground } = await import("@imgly/background-removal");
   const bgRemovedBlob = await removeBackground(asBlob, {
-    model: "small", // Optimize: Gunakan model yang lebih kecil agar download lebih cepat dan tidak lag
+    model: "isnet_fp16", // Optimize: Gunakan model yang lebih kecil agar download lebih cepat dan tidak lag
     progress: () => {},
   });
   
