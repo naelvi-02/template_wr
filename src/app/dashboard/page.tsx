@@ -89,22 +89,57 @@ function SettingsPage() {
   const [passwordSaved, setPasswordSaved] = useState(false);
   const [passwordError, setPasswordError] = useState("");
 
-  const handleSaveUsername = () => {
+  const handleSaveUsername = async () => {
     if (!username.trim()) return;
-    setUsernameSaved(true);
-    setTimeout(() => setUsernameSaved(false), 2500);
+    try {
+      const res = await fetch("/api/user/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newUsername: username }),
+      });
+      if (res.ok) {
+        setUsernameSaved(true);
+        setTimeout(() => {
+          setUsernameSaved(false);
+          signOut({ callbackUrl: '/login' });
+        }, 2500);
+      } else {
+        const data = await res.json();
+        alert(data.error || "Gagal mengubah username");
+      }
+    } catch (e) {
+      alert("Terjadi kesalahan jaringan");
+    }
   };
 
-  const handleSavePassword = () => {
+  const handleSavePassword = async () => {
     setPasswordError("");
     if (!currentPassword) { setPasswordError("Masukkan password saat ini."); return; }
     if (newPassword.length < 6) { setPasswordError("Password baru minimal 6 karakter."); return; }
     if (newPassword !== confirmPassword) { setPasswordError("Password baru dan konfirmasi tidak cocok."); return; }
-    setPasswordSaved(true);
-    setCurrentPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
-    setTimeout(() => setPasswordSaved(false), 2500);
+    
+    try {
+      const res = await fetch("/api/user/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      if (res.ok) {
+        setPasswordSaved(true);
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+        setTimeout(() => {
+          setPasswordSaved(false);
+          signOut({ callbackUrl: '/login' });
+        }, 2500);
+      } else {
+        const data = await res.json();
+        setPasswordError(data.error || "Gagal mengubah password");
+      }
+    } catch (e) {
+      setPasswordError("Terjadi kesalahan jaringan");
+    }
   };
 
   const strengthScore = (pw: string) => {
