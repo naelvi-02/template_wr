@@ -444,9 +444,9 @@ export default function Dashboard() {
       const currentX = overrideX !== undefined ? overrideX : posX;
       const currentY = overrideY !== undefined ? overrideY : posY;
 
-      // Fit to a safe area: 60% of canvas width/height to leave room at top and prevent overlap with inset
-      const safeW = finalCanvas.width * 0.6;
-      const safeH = finalCanvas.height * 0.6;
+      // Fit to a safe area: 70% of canvas width/height
+      const safeW = finalCanvas.width * 0.7;
+      const safeH = finalCanvas.height * 0.7;
       const scaleFactor = Math.min(safeW / mainBbox.width, safeH / mainBbox.height) * currentScale;
 
       const drawW = mainBbox.width * scaleFactor;
@@ -514,7 +514,7 @@ export default function Dashboard() {
           const croppedCx = absCx - resDetails.bbox.x;
           const croppedCy = absCy - resDetails.bbox.y;
           
-          let size = Math.max(absW, absH) * 1.35; // optimal padding to prevent clipping
+          let size = Math.max(absW, absH) * 2.5; // padding besar agar zoom-out dan tidak terpotong
           
           // Enforce a minimum zoom size so it doesn't break if AI returns 0
           const minSize = Math.max(origW * 0.08, 150);
