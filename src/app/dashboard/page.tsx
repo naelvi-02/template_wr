@@ -456,7 +456,7 @@ export default function Dashboard() {
       let cy = (finalCanvas.height / 2) - (drawH / 2) + currentY;
       
       // If it's a necklace, pin the top edge exactly to the top of the canvas
-      if (isNecklace && overrideY === undefined) {
+      if (isNecklace) {
         cy = 0 + currentY; // Y=0 touches the top border precisely
       }
 
