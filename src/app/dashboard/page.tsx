@@ -445,9 +445,9 @@ export default function Dashboard() {
       const currentY = overrideY !== undefined ? overrideY : posY;
 
       const isNecklace = target.category === "Necklace";
-      // Fit to a safe area: 115% for necklaces to overbleed the canvas, 70% for others
-      const safeW = finalCanvas.width * (isNecklace ? 1.15 : 0.7);
-      const safeH = finalCanvas.height * (isNecklace ? 1.15 : 0.7);
+      // Fit to a safe area: 85% for necklaces (ideal width), 70% for others
+      const safeW = finalCanvas.width * (isNecklace ? 0.85 : 0.7);
+      const safeH = finalCanvas.height * (isNecklace ? 0.85 : 0.7);
       const scaleFactor = Math.min(safeW / mainBbox.width, safeH / mainBbox.height) * currentScale;
 
       const drawW = mainBbox.width * scaleFactor;
@@ -455,9 +455,9 @@ export default function Dashboard() {
       const cx = (finalCanvas.width / 2) - (drawW / 2) + currentX;
       let cy = (finalCanvas.height / 2) - (drawH / 2) + currentY;
       
-      // If it's a necklace, push it high up so the cut-off ends bleed completely out of the frame
+      // If it's a necklace, pin the top edge exactly to the top of the canvas
       if (isNecklace && overrideY === undefined) {
-        cy = -100 + currentY; // -100px from top border
+        cy = 0 + currentY; // Y=0 touches the top border precisely
       }
 
       // Add a slight drop shadow for realism
