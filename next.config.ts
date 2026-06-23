@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  env: {
+    NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET || "super-rahasia-wahyu-redjo-2026",
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL || "https://wr.naelvi.com"
+  }
 };
 
 export default nextConfig;
