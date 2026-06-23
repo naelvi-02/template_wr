@@ -14,7 +14,7 @@ export function parseFilename(filename: string) {
   let mp = "16"; // default fallback
   
   for (let i = 0; i < tokens.length; i++) {
-    if (/^\d{1,2}K$/i.test(tokens[i])) {
+    if (/^\d{1,2}K[A-Z]*$/i.test(tokens[i])) {
       karat = tokens[i].toUpperCase();
       if (i + 1 < tokens.length) {
         mp = tokens[i + 1];
