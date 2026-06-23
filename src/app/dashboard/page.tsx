@@ -312,7 +312,7 @@ export default function App() {
                 detailReader.onload = () => res(detailReader.result as string);
               });
               
-              const claspPrompt = `Find the main jewelry clasp (pengait) in this image. Return ONLY a valid JSON object with the center coordinates and dimensions as a fraction of the image size (0.0 to 1.0), like this: {"cx": 0.5, "cy": 0.5, "w": 0.3, "h": 0.3}. Output raw JSON only, no markdown.`;
+              const claspPrompt = `Analyze this jewelry image. Find the specific location of the main clasp/hook (pengait). You MUST return ONLY a JSON object representing a small bounding box tightly enclosing the clasp. Use fractional coordinates (0.0 to 1.0). For example, if the clasp is small and in the top right, return {"cx": 0.8, "cy": 0.2, "w": 0.1, "h": 0.1}. Do NOT return the bounding box of the entire bracelet/necklace. Return ONLY raw JSON, no markdown, no explanation.`;
               const claspResponse = await fetch("/api/ai", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -457,7 +457,14 @@ export default function App() {
           const croppedCy = absCy - resDetails.bbox.y;
           
           // Use a square crop area around the clasp
-          const size = Math.max(absW, absH) * 1.5; // add 50% padding
+          let size = Math.max(absW, absH) * 1.5; // add 50% padding
+          
+          // Enforce a minimum zoom size (e.g., 20% of image size or 200px) so it doesn't break if AI returns 0
+          const minSize = Math.max(origW * 0.2, 200);
+          if (size < minSize) {
+            size = minSize;
+          }
+
           cropX = croppedCx - size / 2;
           cropY = croppedCy - size / 2;
           cropW = size;
