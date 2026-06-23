@@ -514,11 +514,10 @@ export default function Dashboard() {
           const croppedCx = absCx - resDetails.bbox.x;
           const croppedCy = absCy - resDetails.bbox.y;
           
-          // Use a square crop area around the clasp
-          let size = Math.max(absW, absH) * 1.5; // add 50% padding
+          let size = Math.max(absW, absH) * 1.15; // tighter padding for more zoom
           
-          // Enforce a minimum zoom size (e.g., 20% of image size or 200px) so it doesn't break if AI returns 0
-          const minSize = Math.max(origW * 0.2, 200);
+          // Enforce a minimum zoom size so it doesn't break if AI returns 0
+          const minSize = Math.max(origW * 0.08, 150);
           if (size < minSize) {
             size = minSize;
           }
@@ -550,7 +549,7 @@ export default function Dashboard() {
       ctx.fillStyle = "#ec1e24";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(`MP ${target.mp}`, 90, 1135); 
+      ctx.fillText(`MP ${target.mp}`, 90, 1155); 
 
       // Karat text inside existing circle
       const karatCx = 740; 
