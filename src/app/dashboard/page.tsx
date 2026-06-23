@@ -521,13 +521,19 @@ export default function Dashboard() {
           const croppedCx = absCx - resDetails.bbox.x;
           const croppedCy = absCy - resDetails.bbox.y;
           
-          const isNecklaceInset = target.category === "Necklace";
-          let size = Math.max(absW, absH) * (isNecklaceInset ? 2.5 : 1.35); // padding besar untuk kalung, normal untuk gelang
+          // Use a tighter uniform padding to ensure the clasp appears large and clear
+          let size = Math.max(absW, absH) * 1.15; 
           
-          // Enforce a minimum zoom size so it doesn't break if AI returns 0
-          const minSize = Math.max(origW * 0.08, 150);
+          // Enforce a minimum zoom size (15% of image or 150px) to prevent over-zooming
+          const minSize = Math.max(origW * 0.15, 150);
           if (size < minSize) {
             size = minSize;
+          }
+
+          // Enforce a maximum size to prevent the crop from exceeding the image bounds
+          const maxSize = Math.min(origW, origH);
+          if (size > maxSize) {
+            size = maxSize;
           }
 
           cropX = croppedCx - size / 2;
