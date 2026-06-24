@@ -19,7 +19,7 @@ export function parseFilename(filename: string) {
     if (prefix === "KL") category = "Necklace";
     else if (prefix === "GL") category = "Bracelet";
     else if (prefix === "CC") category = "Ring";
-    else if (prefix === "AT") category = "Earrings";
+    else if (prefix === "AT" || prefix === "ANT") category = "Earrings";
     else if (prefix === "LT") category = "Pendant";
     else if (prefix === "BR") category = "Brooch";
   }
@@ -43,14 +43,19 @@ export function getObjectsBoundingBoxes(canvas: HTMLCanvasElement) {
   const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const w = canvas.width, h = canvas.height;
 
-  // 1. Column projection
+  // 1. Column projection with noise filtering
   const cols = new Array(w).fill(false);
+  const minPixelsPerCol = Math.max(10, Math.floor(h * 0.015)); // e.g., 15px for 1000px height
+  
   for (let x = 0; x < w; x++) {
+    let solidCount = 0;
     for (let y = 0; y < h; y++) {
-      if (data.data[(y * w + x) * 4 + 3] > 10) {
-        cols[x] = true;
-        break;
+      if (data.data[(y * w + x) * 4 + 3] > 40) {
+        solidCount++;
       }
+    }
+    if (solidCount > minPixelsPerCol) {
+      cols[x] = true;
     }
   }
 
