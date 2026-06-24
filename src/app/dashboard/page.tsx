@@ -4,8 +4,9 @@ import {
   Upload, Gem, LogOut, Download, Sparkles, Move, ZoomIn, X,
   CheckCircle2, RotateCcw, FolderOpen, Cpu, ChevronRight,
   ImageIcon, Clock, AlertCircle, Eye, PackageOpen, Settings,
-  User, Lock, Eye as EyeIcon, EyeOff, Save, ShieldCheck, Plus
+  User, Lock, Eye as EyeIcon, EyeOff, Save, ShieldCheck, Plus, Archive
 } from "lucide-react";
+import JSZip from "jszip";
 import { parseFilename, loadAndProcessImage } from "@/lib/imageProcessor";
 import { Project, getProjects, createProject, deleteProject, saveProjectFiles, getProjectFiles, StoredJewelryFile } from "@/lib/db";
 
@@ -900,7 +901,30 @@ webkitdirectory="" directory="" className="hidden" onChange={(e) => e.target.fil
                 {generating ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /><span>Memproses {files.filter((f) => f.status !== "queued" || generating).length} foto…</span></> : <><Sparkles size={16} strokeWidth={2.2} /><span>Generate {files.length > 0 ? `${files.length} Foto` : "Foto"}</span></>}
               </button>
               <button disabled={doneFiles.length === 0} onClick={() => { doneFiles.forEach((file, index) => { const url = file.resultUrl; if (url) { setTimeout(() => { const a = document.createElement("a"); a.href = url; a.download = `WR_${file.baseName}.jpg`; document.body.appendChild(a); a.click(); document.body.removeChild(a); }, index * 500); } }); }} className="relative w-full flex items-center justify-center gap-2.5 py-3.5 rounded-2xl font-semibold text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: doneFiles.length > 0 ? "rgba(56,161,105,0.08)" : "rgba(0,0,0,0.03)", border: doneFiles.length > 0 ? "1.5px solid rgba(56,161,105,0.3)" : "1.5px solid rgba(0,0,0,0.08)", color: doneFiles.length > 0 ? "#38A169" : "#8A8A9E", boxShadow: doneFiles.length > 0 ? "0 4px 16px rgba(56,161,105,0.12)" : "none" }}>
-                <Download size={15} strokeWidth={2.2} /><span>Export {doneFiles.length > 0 ? `${doneFiles.length} Hasil` : "Hasil"}</span>
+                <Download size={15} strokeWidth={2.2} /><span>Export 1-1</span>
+              </button>
+              <button disabled={doneFiles.length === 0} onClick={async () => {
+                const zip = new JSZip();
+                for (const file of doneFiles) {
+                  if (file.resultUrl) {
+                    try {
+                      const res = await fetch(file.resultUrl);
+                      const blob = await res.blob();
+                      zip.file(`WR_${file.baseName}.jpg`, blob);
+                    } catch (err) {}
+                  }
+                }
+                const content = await zip.generateAsync({ type: "blob" });
+                const url = URL.createObjectURL(content);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `WR_Export_${new Date().getTime()}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              }} className="relative w-full flex items-center justify-center gap-2.5 py-3.5 rounded-2xl font-semibold text-sm transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: doneFiles.length > 0 ? "#38A169" : "rgba(0,0,0,0.03)", border: doneFiles.length > 0 ? "1.5px solid #38A169" : "1.5px solid rgba(0,0,0,0.08)", color: doneFiles.length > 0 ? "#FFF" : "#8A8A9E", boxShadow: doneFiles.length > 0 ? "0 4px 16px rgba(56,161,105,0.3)" : "none" }}>
+                <Archive size={15} strokeWidth={2.2} /><span>Export ZIP</span>
               </button>
             </div>
             <div className="rounded-2xl p-5" style={{ background: "rgba(255,255,255,0.6)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", border: "1px solid rgba(0,0,0,0.06)" }}><p className="text-xs font-semibold text-[#1A1A2E] mb-3">Tips</p><ul className="flex flex-col gap-2">{["Pilih folder untuk upload semua foto sekaligus", "AI otomatis menentukan kategori & memisahkan foto detail", "Background akan dihapus secara otomatis", "Export tersedia setelah 1 foto selesai diproses"].map((tip) => (<li key={tip} className="flex items-start gap-2"><span className="mt-1 w-1.5 h-1.5 rounded-full bg-[#E53E3E]/40 flex-shrink-0" /><span className="text-xs text-[#8A8A9E] leading-relaxed">{tip}</span></li>))}</ul></div>
