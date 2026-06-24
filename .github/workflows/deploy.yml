@@ -12,18 +12,18 @@ jobs:
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
-
     - name: Deploy to VPS via SSH
       uses: appleboy/ssh-action@v1.0.3
       env:
         ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
         ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
       with:
         host: ${{ secrets.VPS_HOST }}
         username: ${{ secrets.VPS_USERNAME }}
         password: ${{ secrets.VPS_PASSWORD }}
         port: ${{ secrets.VPS_PORT }}
-        envs: ADMIN_USERNAME,ADMIN_PASSWORD
+        envs: ADMIN_USERNAME,ADMIN_PASSWORD,DATABASE_URL
         script: |
           set -e
           if [ ! -d "$HOME/template_wr" ]; then
@@ -39,7 +39,7 @@ jobs:
           # Setup environment
           echo "ADMIN_USERNAME=$ADMIN_USERNAME" > .env
           echo "ADMIN_PASSWORD=$ADMIN_PASSWORD" >> .env
-          echo "DATABASE_URL=\"file:./dev.db\"" >> .env
+          echo "DATABASE_URL=$DATABASE_URL" >> .env
 
           rm -rf node_modules
           npm install
