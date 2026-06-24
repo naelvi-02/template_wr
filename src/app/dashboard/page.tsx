@@ -525,8 +525,9 @@ export default function Dashboard() {
           const croppedCx = absCx - resDetails.bbox.x;
           const croppedCy = absCy - resDetails.bbox.y;
           
-          // Use a tight uniform padding to ensure the clasp appears large and clear
-          let size = Math.max(absW, absH) * 1.05; 
+          // Necklaces need larger padding so they don't look overly zoomed in compared to bracelets
+          const isNecklace = target.category === "Necklace";
+          let size = Math.max(absW, absH) * (isNecklace ? 1.6 : 1.05); 
           
           // Enforce a smaller minimum zoom size (5% of image or 80px) to ALLOW tight zooming
           const minSize = Math.max(origW * 0.05, 80);
@@ -545,8 +546,9 @@ export default function Dashboard() {
           cropW = size;
           cropH = size;
         } else {
-          // FALLBACK: If AI completely fails, zoom into 25% of the center image (tighter zoom)
-          let size = Math.max(origW, origH) * 0.25;
+          // FALLBACK: If AI completely fails
+          const isNecklace = target.category === "Necklace";
+          let size = Math.max(origW, origH) * (isNecklace ? 0.35 : 0.25);
           cropX = croppedCx - size / 2;
           cropY = croppedCy - size / 2;
           cropW = size;
