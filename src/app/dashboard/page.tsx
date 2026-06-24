@@ -461,11 +461,11 @@ export default function Dashboard() {
   // ── Compose Engine ──────────────────────────────────────────────────────────
   const drawComposition = async (target: JewelryFile, overrideScale?: number, overrideX?: number, overrideY?: number): Promise<string | null> => {
     try {
-      const { canvas: mainCropped, bbox: mainBbox } = await loadAndProcessImage(target.file);
+      const { canvas: mainCropped, bbox: mainBbox } = await loadAndProcessImage(target.file, target.category);
       let detailCropped: HTMLCanvasElement | null = null;
       let resDetails: any = null;
       if (target.detailFile) {
-        resDetails = await loadAndProcessImage(target.detailFile);
+        resDetails = await loadAndProcessImage(target.detailFile, target.category);
         detailCropped = resDetails.canvas;
       }
 
