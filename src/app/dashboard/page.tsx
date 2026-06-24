@@ -794,7 +794,8 @@ export default function Dashboard() {
   }, [activeFile, scale, posX, posY, generating]);
 
   const doneFiles = files.filter((f) => f.status === "done" && !f.exported);
-  const allReady = files.length > 0 && files.every((f) => !f.detecting);
+  const pendingTargets = files.filter((f) => !f.detecting && f.status !== "done");
+  const allReady = pendingTargets.length > 0 && files.every((f) => !f.detecting);
 
   return (
     <div className="min-h-screen bg-[#F8F9FA]" style={{ fontFamily: "'Inter', sans-serif" }}>
@@ -986,12 +987,12 @@ webkitdirectory="" directory="" className="hidden" onChange={(e) => e.target.fil
               <div className="h-px bg-[#EDEDF3]" />
               {(generating || processedCount > 0) && (
                 <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between text-xs"><span className="font-semibold text-[#1A1A2E]">{generating ? "Memproses AI…" : "Selesai"}</span><span className="font-bold tabular-nums" style={{ color: "#E53E3E" }}>{processedCount} / {files.filter((f) => f.status !== "queued" || generating).length}</span></div>
+                  <div className="flex items-center justify-between text-xs"><span className="font-semibold text-[#1A1A2E]">{generating ? "Memproses AI…" : "Selesai"}</span><span className="font-bold tabular-nums" style={{ color: "#E53E3E" }}>{processedCount} / {generating ? files.filter(f => f.status === "queued" || f.status === "processing").length + processedCount : pendingTargets.length}</span></div>
                   <div className="relative h-2 rounded-full bg-[#EDEDF3] overflow-hidden"><div className="absolute top-0 left-0 h-full rounded-full transition-all duration-500" style={{ width: `${progress}%`, background: "linear-gradient(to right, #E53E3E, #FC8181)" }} /></div>
                 </div>
               )}
-              <button onClick={handleGenerate} disabled={generating || !allReady || files.length === 0} className="relative w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl text-white font-semibold text-sm transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed" style={{ background: "linear-gradient(135deg, #E53E3E 0%, #FC8181 100%)", boxShadow: allReady && files.length > 0 && !generating ? "0 8px 32px rgba(229,62,62,0.4), 0 2px 8px rgba(229,62,62,0.2)" : "none" }}>
-                {generating ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /><span>Memproses {files.filter((f) => f.status !== "queued" || generating).length} foto…</span></> : <><Sparkles size={16} strokeWidth={2.2} /><span>Generate {files.length > 0 ? `${files.length} Foto` : "Foto"}</span></>}
+              <button onClick={handleGenerate} disabled={generating || !allReady || pendingTargets.length === 0} className="relative w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl text-white font-semibold text-sm transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed" style={{ background: "linear-gradient(135deg, #E53E3E 0%, #FC8181 100%)", boxShadow: allReady && pendingTargets.length > 0 && !generating ? "0 8px 32px rgba(229,62,62,0.4), 0 2px 8px rgba(229,62,62,0.2)" : "none" }}>
+                {generating ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /><span>Memproses foto…</span></> : <><Sparkles size={16} strokeWidth={2.2} /><span>Generate {pendingTargets.length > 0 ? `${pendingTargets.length} Foto` : "Foto"}</span></>}
               </button>
               <button disabled={doneFiles.length === 0} onClick={() => { 
                 doneFiles.forEach((file, index) => { 
