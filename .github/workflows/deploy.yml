@@ -15,11 +15,15 @@ jobs:
 
     - name: Deploy to VPS via SSH
       uses: appleboy/ssh-action@v1.0.3
+      env:
+        ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+        ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
       with:
         host: ${{ secrets.VPS_HOST }}
         username: ${{ secrets.VPS_USERNAME }}
         password: ${{ secrets.VPS_PASSWORD }}
         port: ${{ secrets.VPS_PORT }}
+        envs: ADMIN_USERNAME,ADMIN_PASSWORD
         script: |
           set -e
           if [ ! -d "$HOME/template_wr" ]; then
@@ -31,8 +35,20 @@ jobs:
           if ! command -v pm2 &> /dev/null; then
             npm install -g pm2
           fi
+          
+          # Setup environment
+          echo "ADMIN_USERNAME=$ADMIN_USERNAME" > .env
+          echo "ADMIN_PASSWORD=$ADMIN_PASSWORD" >> .env
+          echo "DATABASE_URL=\"file:./dev.db\"" >> .env
+
           rm -rf node_modules
           npm install
+          
+          # Setup database
+          npx prisma generate
+          npx prisma db push --accept-data-loss
+          npx tsx prisma/seed.ts
+          
           rm -rf .next
           npm run build
           pm2 restart wr-template-app || pm2 start npm --name "wr-template-app" -- start
