@@ -955,7 +955,14 @@ webkitdirectory="" directory="" className="hidden" onChange={(e) => e.target.fil
             {files.length > 0 && (
               <div className="rounded-2xl overflow-hidden" style={{ background: "rgba(255,255,255,0.75)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", border: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 4px 24px rgba(0,0,0,0.05)" }}>
                 <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
-                  <div className="flex items-center gap-2"><PackageOpen size={15} className="text-[#E53E3E]" strokeWidth={2} /><span className="text-sm font-bold text-[#1A1A2E]">Hasil Proses</span><span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-semibold" style={{ background: "rgba(229,62,62,0.08)", color: "#E53E3E" }}>{doneFiles.length} selesai</span></div>
+                  <div className="flex items-center gap-2">
+                    <PackageOpen size={15} className="text-[#E53E3E]" strokeWidth={2} />
+                    <span className="text-sm font-bold text-[#1A1A2E]">Hasil Proses</span>
+                    <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-semibold" style={{ background: "rgba(229,62,62,0.08)", color: "#E53E3E" }}>
+                      {files.filter(f => f.status === "done").length} selesai 
+                      {files.some(f => f.exported) ? ` (${files.filter(f => f.exported).length} exported)` : ""}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-3 text-xs text-[#8A8A9E]"><span>{files.filter((f) => f.status === "queued").length} antrian</span><span>·</span><span>{files.filter((f) => f.status === "error").length} gagal</span></div>
                 </div>
                 <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">

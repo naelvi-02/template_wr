@@ -199,13 +199,18 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
     }
   }
 
-  if (components.length > 0) {
-    const maxArea = Math.max(...components.map(c => c.area));
-    // Keep components that are at least 5% of the largest component's area
-    const validIds = new Set(components.filter(c => c.area >= maxArea * 0.05).map(c => c.id));
-    for (let i = 0; i < w * h; i++) {
-      const id = compIdMap[i];
-      if (id > 0 && !validIds.has(id)) {
+    if (components.length > 0) {
+      const maxArea = Math.max(...components.map(c => c.area));
+      // Aggressively remove tags at the bottom, keep main jewelry
+      const validIds = new Set(components.filter(c => {
+        const isAtBottom = c.minY > h * 0.65; // Component starts in bottom 35%
+        if (isAtBottom && c.area < maxArea * 0.4) return false; // Highly likely a barcode tag
+        return c.area >= maxArea * 0.08; // Safe threshold for earrings/pendants
+      }).map(c => c.id));
+      
+      for (let i = 0; i < w * h; i++) {
+        const id = compIdMap[i];
+        if (id > 0 && !validIds.has(id)) {
         data[i * 4 + 3] = 0;
       }
     }
