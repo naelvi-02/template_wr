@@ -912,23 +912,9 @@ webkitdirectory="" directory="" className="hidden" onChange={(e) => e.target.fil
               )}
             </div>
 
-            {/* Live Preview Canvas */}
             <div className="relative rounded-3xl overflow-hidden flex items-center justify-center" style={{ aspectRatio: "1 / 1", background: "rgba(255,255,255,0.6)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.9)", boxShadow: "0 8px 40px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.8)" }}>
-              {activeFile && !activeFile.detecting && (
-                <button 
-                  onClick={async () => {
-                    setIsRenderingPreview(true);
-                    const url = await drawComposition(activeFile, scale, posX, posY);
-                    if (url) setLivePreviewUrl(url);
-                    setIsRenderingPreview(false);
-                  }}
-                  className="absolute z-20 top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all hover:scale-105" style={{ background: "rgba(229,62,62,0.9)", color: "white", boxShadow: "0 4px 12px rgba(229,62,62,0.3)" }}>
-                  <RotateCcw size={12} className={isRenderingPreview ? "animate-spin" : ""} /> Update Preview
-                </button>
-              )}
-              
-              {activeFile?.resultUrl || livePreviewUrl ? (
-                <img src={(activeFile?.resultUrl || livePreviewUrl)!} alt="Live Preview" className="w-full h-full object-contain" />
+              {livePreviewUrl || activeFile?.resultUrl ? (
+                <img src={(livePreviewUrl || activeFile?.resultUrl)!} alt="Live Preview" className="w-full h-full object-contain" />
               ) : activeFile && !activeFile.detecting ? (
                 <div className="text-center">
                   <div className="w-10 h-10 border-4 border-[#E53E3E]/30 border-t-[#E53E3E] rounded-full animate-spin mx-auto mb-3" />
