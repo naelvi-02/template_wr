@@ -20,6 +20,7 @@ export interface StoredJewelryFile {
   status: "queued" | "processing" | "done" | "error";
   claspBbox?: { cx: number; cy: number; w: number; h: number } | null;
   resultBlob?: Blob;
+  kembarId?: string | null;
 }
 
 const PROJECTS_KEY = "wr_projects";

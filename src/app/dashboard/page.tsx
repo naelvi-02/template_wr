@@ -29,6 +29,7 @@ interface JewelryFile {
   resultUrl: string | null;
   resultBlob?: Blob;
   claspBbox?: { cx: number, cy: number, w: number, h: number } | null;
+  kembarId?: string | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -316,7 +317,51 @@ export default function Dashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
-  // ── File ingestion ──────────────────────────────────────────────────────────
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const items = e.dataTransfer.items;
+    if (!items) {
+      processFiles(e.dataTransfer.files);
+      return;
+    }
+
+    const files: File[] = [];
+    const promises: Promise<void>[] = [];
+
+    const traverseFileTree = (item: any, path: string = "") => {
+      return new Promise<void>((resolve) => {
+        if (item.isFile) {
+          item.file((file: File) => {
+            Object.defineProperty(file, 'webkitRelativePath', {
+              value: path + file.name,
+              writable: false
+            });
+            files.push(file);
+            resolve();
+          });
+        } else if (item.isDirectory) {
+          const dirReader = item.createReader();
+          dirReader.readEntries((entries: any[]) => {
+            const entryPromises = entries.map((entry: any) => traverseFileTree(entry, path + item.name + "/"));
+            Promise.all(entryPromises).then(() => resolve());
+          });
+        }
+      });
+    };
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i].webkitGetAsEntry();
+      if (item) {
+        promises.push(traverseFileTree(item));
+      }
+    }
+
+    await Promise.all(promises);
+    processFiles(files);
+  };
+
   const processFiles = useCallback((rawFiles: FileList | File[]) => {
     const imageFiles = Array.from(rawFiles).filter((f) => f.type.startsWith("image/"));
     if (!imageFiles.length) return;
@@ -354,6 +399,17 @@ export default function Dashboard() {
           detecting: true,
           status: "queued",
           resultUrl: null,
+          kembarId: data.main ? (() => {
+            const path = data.main.webkitRelativePath || "";
+            const parts = path.split("/");
+            if (parts.length > 1) {
+              const folderName = parts[parts.length - 2];
+              if (folderName.toUpperCase().includes("KEMBAR")) {
+                return folderName;
+              }
+            }
+            return null;
+          })() : null,
         });
       }
     });
@@ -468,15 +524,7 @@ export default function Dashboard() {
       let detailCropped: HTMLCanvasElement | null = null;
       let resDetails: any = null;
 
-      const path = target.file?.webkitRelativePath || "";
-      const parts = path.split("/");
-      let kembarId: string | null = null;
-      if (parts.length > 1) {
-        const folderName = parts[parts.length - 2];
-        if (folderName.toUpperCase().includes("KEMBAR")) {
-          kembarId = folderName;
-        }
-      }
+      const kembarId = target.kembarId;
 
       if (kembarId && kembarCache?.has(kembarId)) {
         const cached = kembarCache.get(kembarId)!;
@@ -813,7 +861,7 @@ export default function Dashboard() {
           {/* LEFT ─────────────────────────────────────────────────────────── */}
           <div className="flex flex-col gap-5">
             {/* Drop zone */}
-            <div onDrop={(e) => { e.preventDefault(); setIsDragging(false); processFiles(e.dataTransfer.files); }} onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} className="relative rounded-2xl transition-all duration-200 overflow-hidden" style={{ background: isDragging ? "rgba(229,62,62,0.05)" : "rgba(255,255,255,0.7)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", border: isDragging ? "1.5px dashed #E53E3E" : "1.5px dashed rgba(0,0,0,0.13)", boxShadow: isDragging ? "0 0 0 4px rgba(229,62,62,0.08), 0 4px 24px rgba(0,0,0,0.05)" : "0 2px 12px rgba(0,0,0,0.04)" }}>
+            <div onDrop={handleDrop} onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }} onDragLeave={() => setIsDragging(false)} className="relative rounded-2xl transition-all duration-200 overflow-hidden" style={{ background: isDragging ? "rgba(229,62,62,0.05)" : "rgba(255,255,255,0.7)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", border: isDragging ? "1.5px dashed #E53E3E" : "1.5px dashed rgba(0,0,0,0.13)", boxShadow: isDragging ? "0 0 0 4px rgba(229,62,62,0.08), 0 4px 24px rgba(0,0,0,0.05)" : "0 2px 12px rgba(0,0,0,0.04)" }}>
               <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => e.target.files && processFiles(e.target.files)} />
               <input ref={folderInputRef} type="file" accept="image/*" multiple 
 // @ts-expect-error 
