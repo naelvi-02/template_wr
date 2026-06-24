@@ -733,15 +733,28 @@ export default function Dashboard() {
 
     let doneCount = 0;
     const kembarCache: KembarCacheType = new Map();
+    const fullKembarCache = new Map<string, { resultUrl: string, resultBlob: Blob }>();
     
     for (const target of targets) {
       setFiles((prev) => prev.map((f) => f.id === target.id ? { ...f, status: "processing" } : f));
       
-      const resultUrl = await drawComposition(target, 100, 0, 0, kembarCache);
+      const kembarId = target.kembarId;
+      let resultUrl: string | null = null;
       let resultBlob: Blob | undefined;
-      if (resultUrl) {
-        const res = await fetch(resultUrl);
-        resultBlob = await res.blob();
+
+      if (kembarId && fullKembarCache.has(kembarId)) {
+        const cached = fullKembarCache.get(kembarId)!;
+        resultUrl = cached.resultUrl;
+        resultBlob = cached.resultBlob;
+      } else {
+        resultUrl = await drawComposition(target, 100, 0, 0, kembarCache);
+        if (resultUrl) {
+          const res = await fetch(resultUrl);
+          resultBlob = await res.blob();
+          if (kembarId) {
+            fullKembarCache.set(kembarId, { resultUrl, resultBlob });
+          }
+        }
       }
 
       const success = !!resultUrl;
