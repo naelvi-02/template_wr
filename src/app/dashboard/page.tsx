@@ -26,6 +26,7 @@ interface JewelryFile {
   detecting: boolean;
   status: FileStatus;
   resultUrl: string | null;
+  resultBlob?: Blob;
   claspBbox?: { cx: number, cy: number, w: number, h: number } | null;
 }
 
@@ -283,8 +284,8 @@ export default function Dashboard() {
         ...s,
         url: URL.createObjectURL(s.file),
         detailUrl: s.detailFile ? URL.createObjectURL(s.detailFile) : undefined,
-        resultUrl: null,
-        status: s.status === "done" || s.status === "processing" ? "queued" : s.status
+        resultUrl: s.resultBlob ? URL.createObjectURL(s.resultBlob) : null,
+        status: s.status === "processing" ? "queued" : s.status
       }));
       setFiles(rehydrated);
       if (rehydrated.length > 0) setActiveId(rehydrated[0].id);
@@ -657,9 +658,20 @@ export default function Dashboard() {
       setFiles((prev) => prev.map((f) => f.id === target.id ? { ...f, status: "processing" } : f));
       
       const resultUrl = await drawComposition(target, 100, 0, 0);
+      let resultBlob: Blob | undefined;
+      if (resultUrl) {
+        const res = await fetch(resultUrl);
+        resultBlob = await res.blob();
+      }
+
       const success = !!resultUrl;
       
-      setFiles((prev) => prev.map((f) => f.id === target.id ? { ...f, status: success ? "done" : "error", resultUrl: success ? resultUrl : null } : f));
+      setFiles((prev) => prev.map((f) => f.id === target.id ? { 
+        ...f, 
+        status: success ? "done" : "error", 
+        resultUrl: success ? resultUrl : null,
+        resultBlob: success ? resultBlob : undefined
+      } : f));
       
       doneCount++;
       setProgress(Math.round((doneCount / targets.length) * 100));

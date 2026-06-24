@@ -19,6 +19,7 @@ export interface StoredJewelryFile {
   detecting: boolean;
   status: "queued" | "processing" | "done" | "error";
   claspBbox?: { cx: number; cy: number; w: number; h: number } | null;
+  resultBlob?: Blob;
 }
 
 const PROJECTS_KEY = "wr_projects";
