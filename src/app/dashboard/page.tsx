@@ -31,6 +31,9 @@ interface JewelryFile {
   claspBbox?: { cx: number, cy: number, w: number, h: number } | null;
   kembarId?: string | null;
   exported?: boolean;
+  scale?: number;
+  posX?: number;
+  posY?: number;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -266,6 +269,9 @@ export default function Dashboard() {
   const [newProjectName, setNewProjectName] = useState("");
   const [files, setFiles] = useState<JewelryFile[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  const processCache = useRef(new Map<string, { mainCropped: HTMLCanvasElement, mainBbox: any }>());
+  const kembarDetailCache = useRef(new Map<string, { detailCropped: HTMLCanvasElement | null, resDetails: any }>());
 
   // Load Projects on Mount
   useEffect(() => {
@@ -516,35 +522,38 @@ export default function Dashboard() {
     });
   };
 
-  type KembarCacheType = Map<string, { mainCropped: HTMLCanvasElement, mainBbox: any, detailCropped: HTMLCanvasElement | null, resDetails: any }>;
-
-  const drawComposition = async (target: JewelryFile, overrideScale?: number, overrideX?: number, overrideY?: number, kembarCache?: KembarCacheType): Promise<string | null> => {
+  const drawComposition = async (target: JewelryFile, overrideScale?: number, overrideX?: number, overrideY?: number): Promise<string | null> => {
     try {
       let mainCropped: HTMLCanvasElement;
       let mainBbox: any;
       let detailCropped: HTMLCanvasElement | null = null;
       let resDetails: any = null;
 
-      const kembarId = target.kembarId;
+      const cacheKey = target.id;
 
-      if (kembarId && kembarCache?.has(kembarId)) {
-        const cached = kembarCache.get(kembarId)!;
+      if (processCache.current.has(cacheKey)) {
+        const cached = processCache.current.get(cacheKey)!;
         mainCropped = cached.mainCropped;
         mainBbox = cached.mainBbox;
-        detailCropped = cached.detailCropped;
-        resDetails = cached.resDetails;
       } else {
         const resMain = await loadAndProcessImage(target.file, target.category);
         mainCropped = resMain.canvas;
         mainBbox = resMain.bbox;
-        
-        if (target.detailFile) {
+        processCache.current.set(cacheKey, { mainCropped, mainBbox });
+      }
+
+      const kembarId = target.kembarId;
+      if (target.detailFile) {
+        if (kembarId && kembarDetailCache.current.has(kembarId)) {
+          const cachedDet = kembarDetailCache.current.get(kembarId)!;
+          detailCropped = cachedDet.detailCropped;
+          resDetails = cachedDet.resDetails;
+        } else {
           resDetails = await loadAndProcessImage(target.detailFile, target.category);
           detailCropped = resDetails.canvas;
-        }
-
-        if (kembarId && kembarCache) {
-          kembarCache.set(kembarId, { mainCropped, mainBbox, detailCropped, resDetails });
+          if (kembarId) {
+            kembarDetailCache.current.set(kembarId, { detailCropped, resDetails });
+          }
         }
       }
 
@@ -570,9 +579,9 @@ export default function Dashboard() {
       ctx.drawImage(templateImg, 0, 0);
 
       // 3. Draw Main Jewelry (Centered)
-      const currentScale = (overrideScale !== undefined ? overrideScale : scale) / 100;
-      const currentX = overrideX !== undefined ? overrideX : posX;
-      const currentY = overrideY !== undefined ? overrideY : posY;
+      const currentScale = (overrideScale !== undefined ? overrideScale : 100) / 100;
+      const currentX = overrideX !== undefined ? overrideX : 0;
+      const currentY = overrideY !== undefined ? overrideY : 0;
 
       const isNecklace = target.category === "Necklace";
       // Fit to a safe area: 85% for necklaces (ideal width), 70% for others
@@ -733,29 +742,17 @@ export default function Dashboard() {
     setFiles((prev) => prev.map((f) => targets.find((t) => t.id === f.id) ? { ...f, status: "queued", resultUrl: null } : f));
 
     let doneCount = 0;
-    const kembarCache: KembarCacheType = new Map();
-    const fullKembarCache = new Map<string, { resultUrl: string, resultBlob: Blob }>();
     
     for (const target of targets) {
       setFiles((prev) => prev.map((f) => f.id === target.id ? { ...f, status: "processing" } : f));
       
-      const kembarId = target.kembarId;
       let resultUrl: string | null = null;
       let resultBlob: Blob | undefined;
 
-      if (kembarId && fullKembarCache.has(kembarId)) {
-        const cached = fullKembarCache.get(kembarId)!;
-        resultUrl = cached.resultUrl;
-        resultBlob = cached.resultBlob;
-      } else {
-        resultUrl = await drawComposition(target, 100, 0, 0, kembarCache);
-        if (resultUrl) {
-          const res = await fetch(resultUrl);
-          resultBlob = await res.blob();
-          if (kembarId) {
-            fullKembarCache.set(kembarId, { resultUrl, resultBlob });
-          }
-        }
+      resultUrl = await drawComposition(target, target.scale ?? scale, target.posX ?? posX, target.posY ?? posY);
+      if (resultUrl) {
+        const res = await fetch(resultUrl);
+        resultBlob = await res.blob();
       }
 
       const success = !!resultUrl;
