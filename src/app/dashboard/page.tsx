@@ -932,7 +932,7 @@ webkitdirectory="" directory="" className="hidden" onChange={(e) => e.target.fil
               ) : activeFile && !activeFile.detecting ? (
                 <div className="text-center">
                   <div className="w-10 h-10 border-4 border-[#E53E3E]/30 border-t-[#E53E3E] rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-sm font-semibold text-[#8A8A9E]">Klik 'Update Preview' untuk merender kanvas...</p>
+                  <p className="text-sm font-semibold text-[#8A8A9E]">Memuat preview...</p>
                 </div>
               ) : null}
 
