@@ -128,11 +128,20 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
   const canvas = document.createElement("canvas");
   canvas.width = img.width;
   canvas.height = img.height;
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Could not get context");
 
   ctx.filter = 'brightness(1.03) contrast(1.05) saturate(1.05)';
   ctx.drawImage(img, 0, 0);
+
+  // Clean up faint artifacts left by background removal
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 3; i < imgData.data.length; i += 4) {
+    if (imgData.data[i] < 50) {
+      imgData.data[i] = 0;
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
 
   const boxes = getObjectsBoundingBoxes(canvas);
   let finalBbox = { x: 0, y: 0, width: img.width, height: img.height };
@@ -169,7 +178,12 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
           }
         }
         finalBbox = bestBox;
-        duplicateMode = true;
+        
+        // Check if it's already a pair that was merged (aspect ratio width/height > 1.2)
+        const aspectRatio = finalBbox.width / finalBbox.height;
+        if (aspectRatio < 1.2) {
+          duplicateMode = true;
+        }
       }
     } else {
       // Not earrings: isolate the central object
