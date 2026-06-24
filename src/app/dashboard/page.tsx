@@ -1,12 +1,13 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Upload, Gem, LogOut, Download, Sparkles, Move, ZoomIn, X,
   CheckCircle2, RotateCcw, FolderOpen, Cpu, ChevronRight,
   ImageIcon, Clock, AlertCircle, Eye, PackageOpen, Settings,
-  User, Lock, Eye as EyeIcon, EyeOff, Save, ShieldCheck
+  User, Lock, Eye as EyeIcon, EyeOff, Save, ShieldCheck, Plus
 } from "lucide-react";
 import { parseFilename, loadAndProcessImage } from "@/lib/imageProcessor";
+import { Project, getProjects, createProject, deleteProject, saveProjectFiles, getProjectFiles, StoredJewelryFile } from "@/lib/db";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type FileStatus = "queued" | "processing" | "done" | "error";
@@ -255,8 +256,53 @@ import { signOut } from "next-auth/react";
 
 export default function Dashboard() {
   const [activePage, setActivePage] = useState<"dashboard" | "settings">("dashboard");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
   const [files, setFiles] = useState<JewelryFile[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  // Load Projects on Mount
+  useEffect(() => {
+    getProjects().then(p => {
+      setProjects(p);
+      if (p.length === 0) {
+        setShowProjectModal(true);
+      } else {
+        setActiveProjectId(p[p.length - 1].id);
+      }
+    });
+  }, []);
+
+  // Load Files when active project changes
+  useEffect(() => {
+    if (!activeProjectId) return;
+    getProjectFiles(activeProjectId).then(stored => {
+      const rehydrated: JewelryFile[] = stored.map(s => ({
+        ...s,
+        url: URL.createObjectURL(s.file),
+        detailUrl: s.detailFile ? URL.createObjectURL(s.detailFile) : undefined,
+        resultUrl: null,
+        status: s.status === "done" || s.status === "processing" ? "queued" : s.status
+      }));
+      setFiles(rehydrated);
+      if (rehydrated.length > 0) setActiveId(rehydrated[0].id);
+      else setActiveId(null);
+    });
+  }, [activeProjectId]);
+
+  // Auto-Save Files when they change
+  useEffect(() => {
+    if (!activeProjectId) return;
+    
+    const toStore: StoredJewelryFile[] = files.map(f => {
+      const { url, detailUrl, resultUrl, ...rest } = f;
+      return rest;
+    });
+    
+    saveProjectFiles(activeProjectId, toStore).catch(console.error);
+  }, [files, activeProjectId]);
   const [isDragging, setIsDragging] = useState(false);
   const [scale, setScale] = useState(100);
   const [posX, setPosX] = useState(0);
@@ -648,13 +694,58 @@ export default function Dashboard() {
     <div className="min-h-screen bg-[#F8F9FA]" style={{ fontFamily: "'Inter', sans-serif" }}>
       {/* ── Nav ────────────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-50 flex items-center justify-between px-8 py-4" style={{ background: "rgba(255,255,255,0.75)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", borderBottom: "1px solid rgba(0,0,0,0.07)", boxShadow: "0 1px 24px rgba(229,62,62,0.04), 0 1px 4px rgba(0,0,0,0.04)" }}>
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "linear-gradient(135deg, #E53E3E 0%, #FC8181 100%)" }}>
-            <Gem size={18} className="text-white" strokeWidth={1.8} />
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "linear-gradient(135deg, #E53E3E 0%, #FC8181 100%)" }}>
+              <Gem size={18} className="text-white" strokeWidth={1.8} />
+            </div>
+            <div className="flex flex-col leading-none">
+              <span className="font-bold text-[15px] tracking-tight text-[#1A1A2E]">Wahyu Redjo</span>
+              <span className="text-[10px] font-medium text-[#8A8A9E] tracking-widest uppercase">Studio</span>
+            </div>
           </div>
-          <div className="flex flex-col leading-none">
-            <span className="font-bold text-[15px] tracking-tight text-[#1A1A2E]">Wahyu Redjo</span>
-            <span className="text-[10px] font-medium text-[#8A8A9E] tracking-widest uppercase">Studio</span>
+
+          <div className="h-6 w-[1px] bg-gray-200"></div>
+
+          {/* Project Selector */}
+          <div className="flex items-center gap-1 bg-gray-50 rounded-lg p-1">
+            <select
+              value={activeProjectId || ""}
+              onChange={(e) => {
+                if (e.target.value === "NEW") setShowProjectModal(true);
+                else setActiveProjectId(e.target.value);
+              }}
+              className="bg-transparent border-none text-[#1A1A2E] text-sm font-semibold outline-none cursor-pointer hover:bg-gray-100 py-1.5 px-2 rounded-md transition-colors appearance-none"
+              style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%231A1A2E%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right .7em top 50%', backgroundSize: '.65em auto', paddingRight: '2.5em' }}
+            >
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+              <option value="NEW" className="font-bold text-[#E53E3E]">+ Create New Project</option>
+            </select>
+            
+            {activeProjectId && projects.length > 0 && (
+              <button
+                onClick={async () => {
+                  if (confirm("Hapus project ini beserta semua filenya?")) {
+                    await deleteProject(activeProjectId);
+                    const p = await getProjects();
+                    setProjects(p);
+                    if (p.length === 0) {
+                      setActiveProjectId(null);
+                      setFiles([]);
+                      setShowProjectModal(true);
+                    } else {
+                      setActiveProjectId(p[p.length - 1].id);
+                    }
+                  }
+                }}
+                className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:bg-red-50 hover:text-red-500 transition-colors"
+                title="Hapus Project"
+              >
+                <X size={14} strokeWidth={2.5} />
+              </button>
+            )}
           </div>
         </div>
         <nav className="flex items-center gap-1">
@@ -804,6 +895,64 @@ webkitdirectory="" directory="" className="hidden" onChange={(e) => e.target.fil
           </div>
         </div>
       </main>}
+
+      {showProjectModal && (
+        <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6">
+              <div className="w-12 h-12 bg-red-50 text-red-500 rounded-xl flex items-center justify-center mb-4">
+                <FolderOpen size={24} strokeWidth={2} />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900 mb-1">Create New Project</h2>
+              <p className="text-sm text-gray-500 mb-6">Start a new batch of jewelry photos. Your work will be automatically saved locally.</p>
+              
+              <input 
+                type="text" 
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                placeholder="e.g., Cincin Berlian Batch 1"
+                className="w-full bg-gray-50 border border-gray-200 text-gray-900 rounded-xl px-4 py-3 font-medium outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all mb-6"
+                autoFocus
+                onKeyDown={async (e) => {
+                  if (e.key === "Enter" && newProjectName.trim()) {
+                    const p = await createProject(newProjectName.trim());
+                    setProjects(prev => [...prev, p]);
+                    setActiveProjectId(p.id);
+                    setNewProjectName("");
+                    setShowProjectModal(false);
+                  }
+                }}
+              />
+
+              <div className="flex gap-3">
+                {projects.length > 0 && (
+                  <button 
+                    onClick={() => setShowProjectModal(false)}
+                    className="flex-1 bg-white border border-gray-200 text-gray-700 font-semibold py-3 rounded-xl hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button 
+                  disabled={!newProjectName.trim()}
+                  onClick={async () => {
+                    if (newProjectName.trim()) {
+                      const p = await createProject(newProjectName.trim());
+                      setProjects(prev => [...prev, p]);
+                      setActiveProjectId(p.id);
+                      setNewProjectName("");
+                      setShowProjectModal(false);
+                    }
+                  }}
+                  className="flex-1 bg-red-500 text-white font-semibold py-3 rounded-xl hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Create Project
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
