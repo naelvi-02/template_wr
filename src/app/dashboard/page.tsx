@@ -459,15 +459,44 @@ export default function Dashboard() {
     });
   };
 
-  // ── Compose Engine ──────────────────────────────────────────────────────────
-  const drawComposition = async (target: JewelryFile, overrideScale?: number, overrideX?: number, overrideY?: number): Promise<string | null> => {
+  type KembarCacheType = Map<string, { mainCropped: HTMLCanvasElement, mainBbox: any, detailCropped: HTMLCanvasElement | null, resDetails: any }>;
+
+  const drawComposition = async (target: JewelryFile, overrideScale?: number, overrideX?: number, overrideY?: number, kembarCache?: KembarCacheType): Promise<string | null> => {
     try {
-      const { canvas: mainCropped, bbox: mainBbox } = await loadAndProcessImage(target.file, target.category);
+      let mainCropped: HTMLCanvasElement;
+      let mainBbox: any;
       let detailCropped: HTMLCanvasElement | null = null;
       let resDetails: any = null;
-      if (target.detailFile) {
-        resDetails = await loadAndProcessImage(target.detailFile, target.category);
-        detailCropped = resDetails.canvas;
+
+      const path = target.file?.webkitRelativePath || "";
+      const parts = path.split("/");
+      let kembarId: string | null = null;
+      if (parts.length > 1) {
+        const folderName = parts[parts.length - 2];
+        if (folderName.toUpperCase().includes("KEMBAR")) {
+          kembarId = folderName;
+        }
+      }
+
+      if (kembarId && kembarCache?.has(kembarId)) {
+        const cached = kembarCache.get(kembarId)!;
+        mainCropped = cached.mainCropped;
+        mainBbox = cached.mainBbox;
+        detailCropped = cached.detailCropped;
+        resDetails = cached.resDetails;
+      } else {
+        const resMain = await loadAndProcessImage(target.file, target.category);
+        mainCropped = resMain.canvas;
+        mainBbox = resMain.bbox;
+        
+        if (target.detailFile) {
+          resDetails = await loadAndProcessImage(target.detailFile, target.category);
+          detailCropped = resDetails.canvas;
+        }
+
+        if (kembarId && kembarCache) {
+          kembarCache.set(kembarId, { mainCropped, mainBbox, detailCropped, resDetails });
+        }
       }
 
       const templateImg = new Image();
@@ -655,10 +684,12 @@ export default function Dashboard() {
     setFiles((prev) => prev.map((f) => targets.find((t) => t.id === f.id) ? { ...f, status: "queued", resultUrl: null } : f));
 
     let doneCount = 0;
+    const kembarCache: KembarCacheType = new Map();
+    
     for (const target of targets) {
       setFiles((prev) => prev.map((f) => f.id === target.id ? { ...f, status: "processing" } : f));
       
-      const resultUrl = await drawComposition(target, 100, 0, 0);
+      const resultUrl = await drawComposition(target, 100, 0, 0, kembarCache);
       let resultBlob: Blob | undefined;
       if (resultUrl) {
         const res = await fetch(resultUrl);
