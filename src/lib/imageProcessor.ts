@@ -221,44 +221,27 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
   const boxes = getObjectsBoundingBoxes(canvas);
   let finalBbox = { x: 0, y: 0, width: img.width, height: img.height };
   let duplicateMode = false;
-  let isPair = false;
 
   if (boxes.length > 0) {
     const imgCenterX = img.width / 2;
     
     if (category === "Earrings") {
-      if (boxes.length === 2) {
-        const centerOfMass = (boxes[0].centerX + boxes[1].centerX) / 2;
-        const diff = Math.abs(centerOfMass - imgCenterX);
-        // If center of mass is close to image center, treat as a pair
-        if (diff < img.width * 0.15) {
-          isPair = true;
-          const minX = Math.min(boxes[0].x, boxes[1].x);
-          const minY = Math.min(boxes[0].y, boxes[1].y);
-          const maxX = Math.max(boxes[0].x + boxes[0].width, boxes[1].x + boxes[1].width);
-          const maxY = Math.max(boxes[0].y + boxes[0].height, boxes[1].y + boxes[1].height);
-          finalBbox = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+      // Find the single central earring
+      let bestBox = boxes[0];
+      let minDiff = Math.abs(boxes[0].centerX - imgCenterX);
+      for (let i = 1; i < boxes.length; i++) {
+        const diff = Math.abs(boxes[i].centerX - imgCenterX);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestBox = boxes[i];
         }
       }
+      finalBbox = bestBox;
       
-      if (!isPair) {
-        // Find the single central earring
-        let bestBox = boxes[0];
-        let minDiff = Math.abs(boxes[0].centerX - imgCenterX);
-        for (let i = 1; i < boxes.length; i++) {
-          const diff = Math.abs(boxes[i].centerX - imgCenterX);
-          if (diff < minDiff) {
-            minDiff = diff;
-            bestBox = boxes[i];
-          }
-        }
-        finalBbox = bestBox;
-        
-        // Check if it's already a pair that was merged (aspect ratio width/height > 1.2)
-        const aspectRatio = finalBbox.width / finalBbox.height;
-        if (aspectRatio < 1.2) {
-          duplicateMode = true;
-        }
+      // Check if it's already a pair that was merged (aspect ratio width/height > 1.2)
+      const aspectRatio = finalBbox.width / finalBbox.height;
+      if (aspectRatio < 1.2) {
+        duplicateMode = true;
       }
     } else {
       // Not earrings: isolate the central object
