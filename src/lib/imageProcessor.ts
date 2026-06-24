@@ -49,12 +49,13 @@ export function getObjectsBoundingBoxes(canvas: HTMLCanvasElement) {
   
   for (let x = 0; x < w; x++) {
     let solidCount = 0;
+    let hasOpaque = false;
     for (let y = 0; y < h; y++) {
-      if (data.data[(y * w + x) * 4 + 3] > 40) {
-        solidCount++;
-      }
+      const alpha = data.data[(y * w + x) * 4 + 3];
+      if (alpha > 200) hasOpaque = true;
+      if (alpha > 40) solidCount++;
     }
-    if (solidCount > minPixelsPerCol) {
+    if (hasOpaque || solidCount > minPixelsPerCol) {
       cols[x] = true;
     }
   }
@@ -111,7 +112,6 @@ export function getObjectsBoundingBoxes(canvas: HTMLCanvasElement) {
 export async function loadAndProcessImage(asBlob: Blob, category: string | null = null): Promise<{ canvas: HTMLCanvasElement, bbox: any, originalWidth: number, originalHeight: number }> {
   const { removeBackground } = await import("@imgly/background-removal");
   const bgRemovedBlob = await removeBackground(asBlob, {
-    model: "isnet_fp16",
     progress: () => {},
   });
   
