@@ -12,6 +12,17 @@ export function parseFilename(filename: string) {
   
   let karat = "16K"; // default fallback
   let mp = "16"; // default fallback
+  let category = null;
+  
+  if (tokens.length > 0) {
+    const prefix = tokens[0].toUpperCase();
+    if (prefix === "KL") category = "Necklace";
+    else if (prefix === "GL") category = "Bracelet";
+    else if (prefix === "CC") category = "Ring";
+    else if (prefix === "AT") category = "Earrings";
+    else if (prefix === "LT") category = "Pendant";
+    else if (prefix === "BR") category = "Brooch";
+  }
   
   for (let i = 0; i < tokens.length; i++) {
     if (/^\d{1,2}K[A-Z]*$/i.test(tokens[i])) {
@@ -23,7 +34,7 @@ export function parseFilename(filename: string) {
     }
   }
   
-  return { baseName, karat, mp, isDetail };
+  return { baseName, karat, mp, category, isDetail };
 }
 
 export function getBoundingBox(canvas: HTMLCanvasElement) {

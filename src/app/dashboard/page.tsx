@@ -302,7 +302,7 @@ export default function Dashboard() {
           detailFile: data.detail,
           url: URL.createObjectURL(data.main),
           detailUrl: data.detail ? URL.createObjectURL(data.detail) : undefined,
-          category: null,
+          category: parsed.category || null,
           detecting: true,
           status: "queued",
           resultUrl: null,
@@ -350,22 +350,26 @@ export default function Dashboard() {
 
     newEntries.forEach(async (entry) => {
       try {
-        const base64Image = await compressImageForAI(entry.file);
-        const prompt = "Please analyze this jewelry image and reply with ONLY ONE of the following categories: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. Do not say anything else.";
+        let category = entry.category;
         
-        const response = await fetch("/api/ai", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt, imageBase64: base64Image }),
-          });
-
-          let category = "Ring";
-          if (response.ok) {
-            const data = await response.json();
-            const reply = data.message?.trim() || "";
-            const matched = AI_CATEGORIES.find(c => reply.toLowerCase().includes(c.toLowerCase()));
-            if (matched) category = matched;
-          }
+        if (!category) {
+          const base64Image = await compressImageForAI(entry.file);
+          const prompt = "Please analyze this jewelry image and reply with ONLY ONE of the following categories: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. Do not say anything else.";
+          
+          const response = await fetch("/api/ai", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prompt, imageBase64: base64Image }),
+            });
+  
+            category = "Ring"; // Default fallback
+            if (response.ok) {
+              const data = await response.json();
+              const reply = data.message?.trim() || "";
+              const matched = AI_CATEGORIES.find(c => reply.toLowerCase().includes(c.toLowerCase()));
+              if (matched) category = matched;
+            }
+        }
 
           let claspBbox = null;
           if ((category === "Necklace" || category === "Bracelet") && entry.detailFile) {
@@ -521,11 +525,11 @@ export default function Dashboard() {
           const croppedCx = absCx - resDetails.bbox.x;
           const croppedCy = absCy - resDetails.bbox.y;
           
-          // Use a tighter uniform padding to ensure the clasp appears large and clear
-          let size = Math.max(absW, absH) * 1.15; 
+          // Use a tight uniform padding to ensure the clasp appears large and clear
+          let size = Math.max(absW, absH) * 1.05; 
           
-          // Enforce a minimum zoom size (15% of image or 150px) to prevent over-zooming
-          const minSize = Math.max(origW * 0.15, 150);
+          // Enforce a smaller minimum zoom size (5% of image or 80px) to ALLOW tight zooming
+          const minSize = Math.max(origW * 0.05, 80);
           if (size < minSize) {
             size = minSize;
           }
@@ -541,8 +545,8 @@ export default function Dashboard() {
           cropW = size;
           cropH = size;
         } else {
-          // FALLBACK: If AI completely fails, zoom into 40% of the center image
-          let size = Math.max(origW, origH) * 0.4;
+          // FALLBACK: If AI completely fails, zoom into 25% of the center image (tighter zoom)
+          let size = Math.max(origW, origH) * 0.25;
           cropX = croppedCx - size / 2;
           cropY = croppedCy - size / 2;
           cropW = size;
