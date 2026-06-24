@@ -141,6 +141,76 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
       imgData.data[i] = 0;
     }
   }
+  
+  // Filter out disconnected small components (like barcode tags at the bottom)
+  const w = canvas.width;
+  const h = canvas.height;
+  const data = imgData.data;
+  const compIdMap = new Int32Array(w * h);
+  const components: {id: number, minX: number, maxX: number, minY: number, maxY: number, area: number}[] = [];
+  const q = new Int32Array(w * h);
+  let nextCompId = 1;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = y * w + x;
+      if (compIdMap[idx] === 0 && data[idx * 4 + 3] > 0) {
+        const currentId = nextCompId++;
+        let head = 0;
+        let tail = 0;
+        q[tail++] = idx;
+        compIdMap[idx] = currentId;
+        
+        let minX = x, maxX = x, minY = y, maxY = y;
+        
+        while (head < tail) {
+          const curr = q[head++];
+          const cy = Math.floor(curr / w);
+          const cx = curr % w;
+          
+          if (cx < minX) minX = cx;
+          if (cx > maxX) maxX = cx;
+          if (cy < minY) minY = cy;
+          if (cy > maxY) maxY = cy;
+          
+          if (cy > 0) {
+            const up = curr - w;
+            if (compIdMap[up] === 0 && data[up * 4 + 3] > 0) { compIdMap[up] = currentId; q[tail++] = up; }
+          }
+          if (cy < h - 1) {
+            const down = curr + w;
+            if (compIdMap[down] === 0 && data[down * 4 + 3] > 0) { compIdMap[down] = currentId; q[tail++] = down; }
+          }
+          if (cx > 0) {
+            const left = curr - 1;
+            if (compIdMap[left] === 0 && data[left * 4 + 3] > 0) { compIdMap[left] = currentId; q[tail++] = left; }
+          }
+          if (cx < w - 1) {
+            const right = curr + 1;
+            if (compIdMap[right] === 0 && data[right * 4 + 3] > 0) { compIdMap[right] = currentId; q[tail++] = right; }
+          }
+        }
+        
+        const area = (maxX - minX + 1) * (maxY - minY + 1);
+        components.push({ id: currentId, minX, maxX, minY, maxY, area });
+      } else if (compIdMap[idx] === 0) {
+        compIdMap[idx] = -1;
+      }
+    }
+  }
+
+  if (components.length > 0) {
+    const maxArea = Math.max(...components.map(c => c.area));
+    // Keep components that are at least 5% of the largest component's area
+    const validIds = new Set(components.filter(c => c.area >= maxArea * 0.05).map(c => c.id));
+    for (let i = 0; i < w * h; i++) {
+      const id = compIdMap[i];
+      if (id > 0 && !validIds.has(id)) {
+        data[i * 4 + 3] = 0;
+      }
+    }
+  }
+
   ctx.putImageData(imgData, 0, 0);
 
   const boxes = getObjectsBoundingBoxes(canvas);
