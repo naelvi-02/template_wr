@@ -15,13 +15,13 @@ export function parseFilename(filename: string) {
   let category = null;
   
   if (tokens.length > 0) {
-    const prefix = tokens[0].toUpperCase();
-    if (prefix === "KL") category = "Necklace";
-    else if (prefix === "GL") category = "Bracelet";
-    else if (prefix === "CC") category = "Ring";
-    else if (prefix === "AT" || prefix === "ANT") category = "Earrings";
-    else if (prefix === "LT") category = "Pendant";
-    else if (prefix === "BR") category = "Brooch";
+    const fullText = nameWithoutExt.toUpperCase();
+    if (fullText.includes("KL") || fullText.includes("KALUNG") || fullText.includes("NECKLACE")) category = "Necklace";
+    else if (fullText.includes("GL") || fullText.includes("GELANG") || fullText.includes("BRACELET")) category = "Bracelet";
+    else if (fullText.includes("CC") || fullText.includes("CINCIN") || fullText.includes("RING")) category = "Ring";
+    else if (fullText.includes("AT") || fullText.includes("ANTING") || fullText.includes("ANT") || fullText.includes("EARRINGS")) category = "Earrings";
+    else if (fullText.includes("LT") || fullText.includes("LIONTIN") || fullText.includes("PENDANT")) category = "Pendant";
+    else if (fullText.includes("BR") || fullText.includes("BROS") || fullText.includes("BROOCH")) category = "Brooch";
   }
   
   for (let i = 0; i < tokens.length; i++) {
