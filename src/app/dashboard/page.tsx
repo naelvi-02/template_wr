@@ -592,18 +592,15 @@ export default function Dashboard() {
           processCache.current.set(cacheKey, { mainCropped: mainCropped as HTMLCanvasElement, mainBbox });
         }
 
-        const kembarId = target.kembarId;
         if (target.detailFile) {
-          if (kembarId && kembarDetailCache.current.has(kembarId)) {
-            const cachedDet = kembarDetailCache.current.get(kembarId)!;
+          if (kembarDetailCache.current.has(cacheKey)) {
+            const cachedDet = kembarDetailCache.current.get(cacheKey)!;
             detailCropped = cachedDet.detailCropped;
             resDetails = cachedDet.resDetails;
           } else {
             resDetails = await loadAndProcessImage(target.detailFile, target.category);
             detailCropped = resDetails.canvas;
-            if (kembarId) {
-              kembarDetailCache.current.set(kembarId, { detailCropped: detailCropped as HTMLCanvasElement, resDetails });
-            }
+            kembarDetailCache.current.set(cacheKey, { detailCropped: detailCropped as HTMLCanvasElement, resDetails });
           }
         }
       }
