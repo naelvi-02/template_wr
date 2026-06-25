@@ -261,6 +261,19 @@ function SettingsPage() {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 import { signOut } from "next-auth/react";
 
+let globalTemplateImg: HTMLImageElement | null = null;
+
+const getTemplateImg = async (): Promise<HTMLImageElement> => {
+  if (globalTemplateImg) return globalTemplateImg;
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => { globalTemplateImg = img; res(img); };
+    img.onerror = rej;
+    img.src = "/Kosongan No Bg.png";
+  });
+};
+
 export default function Dashboard() {
   const [activePage, setActivePage] = useState<"dashboard" | "settings">("dashboard");
   const [projects, setProjects] = useState<Project[]>([]);
@@ -459,59 +472,74 @@ export default function Dashboard() {
       });
     };
 
-    newEntries.forEach(async (entry) => {
-      try {
-        let category = entry.category;
-        
-        if (!category) {
-          const base64Image = await compressImageForAI(entry.file);
-          const prompt = "Please analyze this jewelry image and reply with ONLY ONE of the following categories: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. Do not say anything else.";
-          
-          const response = await fetch("/api/ai", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ prompt, imageBase64: base64Image }),
-            });
-  
-            category = "Ring"; // Default fallback
-            if (response.ok) {
-              const data = await response.json();
-              const reply = data.message?.trim() || "";
-              const matched = AI_CATEGORIES.find(c => reply.toLowerCase().includes(c.toLowerCase()));
-              if (matched) category = matched;
-            }
-        }
-
-          let claspBbox = null;
-          if ((category === "Necklace" || category === "Bracelet") && entry.detailFile) {
-            try {
-              const detailBase64 = await compressImageForAI(entry.detailFile);
+    const processQueue = async () => {
+      const maxConcurrency = 3;
+      let i = 0;
+      const worker = async () => {
+        while (i < newEntries.length) {
+          const entry = newEntries[i++];
+          try {
+            let category = entry.category;
+            
+            if (!category) {
+              const base64Image = await compressImageForAI(entry.file);
+              const prompt = "Please analyze this jewelry image and reply with ONLY ONE of the following categories: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. Do not say anything else.";
               
-              const claspPrompt = `Analyze this jewelry image. Find the specific location of the main clasp/hook (pengait). You MUST return ONLY a JSON object representing a small bounding box tightly enclosing the clasp. Use fractional coordinates (0.0 to 1.0). For example, if the clasp is small and in the top right, return {"cx": 0.8, "cy": 0.2, "w": 0.1, "h": 0.1}. Do NOT return the bounding box of the entire bracelet/necklace. Return ONLY raw JSON, no markdown, no explanation.`;
-              const claspResponse = await fetch("/api/ai", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt: claspPrompt, imageBase64: detailBase64 }),
-              });
-              
-              if (claspResponse.ok) {
-                const data = await claspResponse.json();
-                const reply = data.message || "";
-                const match = reply.match(/\{[\s\S]*\}/);
-                if (match) {
-                  claspBbox = JSON.parse(match[0]);
+              const response = await fetch("/api/ai", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ prompt, imageBase64: base64Image }),
+                });
+      
+                category = "Ring"; // Default fallback
+                if (response.ok) {
+                  const data = await response.json();
+                  const reply = data.message?.trim() || "";
+                  const matched = AI_CATEGORIES.find(c => reply.toLowerCase().includes(c.toLowerCase()));
+                  if (matched) category = matched;
                 }
-              }
-            } catch (e) {
-              console.error("Failed to detect clasp:", e);
             }
-          }
 
-        setFiles((prev) => prev.map((f) => f.id === entry.id ? { ...f, category, claspBbox, detecting: false } : f));
-      } catch (e) {
-        setFiles((prev) => prev.map((f) => f.id === entry.id ? { ...f, category: "Ring", detecting: false } : f));
+            let claspBbox = null;
+            if ((category === "Necklace" || category === "Bracelet") && entry.detailFile) {
+              try {
+                const detailBase64 = await compressImageForAI(entry.detailFile);
+                
+                const claspPrompt = `Analyze this jewelry image. Find the specific location of the main clasp/hook (pengait). You MUST return ONLY a JSON object representing a small bounding box tightly enclosing the clasp. Use fractional coordinates (0.0 to 1.0). For example, if the clasp is small and in the top right, return {"cx": 0.8, "cy": 0.2, "w": 0.1, "h": 0.1}. Do NOT return the bounding box of the entire bracelet/necklace. Return ONLY raw JSON, no markdown, no explanation.`;
+                const claspResponse = await fetch("/api/ai", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ prompt: claspPrompt, imageBase64: detailBase64 }),
+                });
+                
+                if (claspResponse.ok) {
+                  const data = await claspResponse.json();
+                  const reply = data.message || "";
+                  const match = reply.match(/\{[\s\S]*\}/);
+                  if (match) {
+                    claspBbox = JSON.parse(match[0]);
+                  }
+                }
+              } catch (e) {
+                console.error("Failed to detect clasp:", e);
+              }
+            }
+
+            setFiles((prev) => prev.map((f) => f.id === entry.id ? { ...f, category, claspBbox, detecting: false } : f));
+          } catch (e) {
+            setFiles((prev) => prev.map((f) => f.id === entry.id ? { ...f, category: "Ring", detecting: false } : f));
+          }
+        }
+      };
+
+      const workers = [];
+      for (let j = 0; j < maxConcurrency; j++) {
+        workers.push(worker());
       }
-    });
+      await Promise.all(workers);
+    };
+
+    processQueue();
   }, [activeId]);
 
   const removeFile = (id: string) => {
@@ -522,7 +550,7 @@ export default function Dashboard() {
     });
   };
 
-  const drawComposition = async (target: JewelryFile, overrideScale?: number, overrideX?: number, overrideY?: number): Promise<string | null> => {
+  const drawComposition = async (target: JewelryFile, overrideScale?: number, overrideX?: number, overrideY?: number, isPreview: boolean = false): Promise<string | null> => {
     try {
       let mainCropped: HTMLCanvasElement;
       let mainBbox: any;
@@ -557,23 +585,22 @@ export default function Dashboard() {
         }
       }
 
-      const templateImg = new Image();
-      templateImg.crossOrigin = "anonymous";
-      await new Promise((res, rej) => {
-        templateImg.onload = res;
-        templateImg.onerror = rej;
-        templateImg.src = "/Kosongan No Bg.png";
-      });
+      const templateImg = await getTemplateImg();
+      const logicalW = templateImg.width;
+      const logicalH = templateImg.height;
 
+      const scaleDown = isPreview ? 0.35 : 1.0;
       const finalCanvas = document.createElement("canvas");
-      finalCanvas.width = templateImg.width;
-      finalCanvas.height = templateImg.height;
+      finalCanvas.width = logicalW * scaleDown;
+      finalCanvas.height = logicalH * scaleDown;
       const ctx = finalCanvas.getContext("2d");
       if (!ctx) return null;
+      
+      ctx.scale(scaleDown, scaleDown);
 
       // 1. Fill white background (since template is "No Bg")
       ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+      ctx.fillRect(0, 0, logicalW, logicalH);
 
       // 2. Draw template base (logos, footer, etc.)
       ctx.drawImage(templateImg, 0, 0);
@@ -585,14 +612,14 @@ export default function Dashboard() {
 
       const isNecklace = target.category === "Necklace";
       // Fit to a safe area: 85% for necklaces (ideal width), 70% for others
-      const safeW = finalCanvas.width * (isNecklace ? 0.85 : 0.7);
-      const safeH = finalCanvas.height * (isNecklace ? 0.85 : 0.7);
+      const safeW = logicalW * (isNecklace ? 0.85 : 0.7);
+      const safeH = logicalH * (isNecklace ? 0.85 : 0.7);
       const scaleFactor = Math.min(safeW / mainBbox.width, safeH / mainBbox.height) * currentScale;
 
       const drawW = mainBbox.width * scaleFactor;
       const drawH = mainBbox.height * scaleFactor;
-      const cx = (finalCanvas.width / 2) - (drawW / 2) + currentX;
-      let cy = (finalCanvas.height / 2) - (drawH / 2) + currentY;
+      const cx = (logicalW / 2) - (drawW / 2) + currentX;
+      let cy = (logicalH / 2) - (drawH / 2) + currentY;
       
       // If it's a necklace, pin the top edge exactly to the top of the canvas
       if (isNecklace) {
@@ -609,9 +636,9 @@ export default function Dashboard() {
 
       // 4. Draw Inset Detail (if exists)
       if (detailCropped) {
-        const circleRadius = finalCanvas.width * 0.12; // 12% of width
+        const circleRadius = logicalW * 0.12; // 12% of width
         const circleX = circleRadius + 80;
-        const circleY = finalCanvas.height - circleRadius - 200; // Above footer
+        const circleY = logicalH - circleRadius - 200; // Above footer
 
         // Draw white circle with shadow
         ctx.save();
@@ -724,7 +751,20 @@ export default function Dashboard() {
       ctx.textBaseline = "middle";
       ctx.fillText(target.karat, karatCx, karatCy);
 
-      return finalCanvas.toDataURL("image/jpeg", 0.95);
+      if (isPreview) {
+        return finalCanvas.toDataURL("image/jpeg", 0.6);
+      } else {
+        return new Promise<string | null>((resolve) => {
+          finalCanvas.toBlob(
+            (blob) => {
+              if (blob) resolve(URL.createObjectURL(blob));
+              else resolve(null);
+            },
+            "image/jpeg",
+            0.95
+          );
+        });
+      }
     } catch (err) {
       console.error(err);
       return null;
@@ -742,32 +782,47 @@ export default function Dashboard() {
     setFiles((prev) => prev.map((f) => targets.find((t) => t.id === f.id) ? { ...f, status: "queued", resultUrl: null } : f));
 
     let doneCount = 0;
+    const maxConcurrency = 3;
+    let index = 0;
     
-    for (const target of targets) {
-      setFiles((prev) => prev.map((f) => f.id === target.id ? { ...f, status: "processing" } : f));
-      
-      let resultUrl: string | null = null;
-      let resultBlob: Blob | undefined;
+    const worker = async () => {
+      while (index < targets.length) {
+        const target = targets[index++];
+        setFiles((prev) => prev.map((f) => f.id === target.id ? { ...f, status: "processing" } : f));
+        
+        let resultUrl = null;
+        let resultBlob = undefined;
+        
+        resultUrl = await drawComposition(target, target.scale ?? scale, target.posX ?? posX, target.posY ?? posY, false);
+        if (resultUrl) {
+          try {
+            const res = await fetch(resultUrl);
+            resultBlob = await res.blob();
+          } catch (e) {
+             console.error(e);
+             resultUrl = null;
+          }
+        }
 
-      resultUrl = await drawComposition(target, target.scale ?? scale, target.posX ?? posX, target.posY ?? posY);
-      if (resultUrl) {
-        const res = await fetch(resultUrl);
-        resultBlob = await res.blob();
+        const success = !!resultUrl;
+        setFiles((prev) => prev.map((f) => f.id === target.id ? { 
+          ...f, 
+          status: success ? "done" : "error", 
+          resultUrl: success ? resultUrl : null,
+          resultBlob: success ? resultBlob : undefined
+        } : f));
+        
+        doneCount++;
+        setProgress(Math.round((doneCount / targets.length) * 100));
+        setProcessedCount(doneCount);
       }
-
-      const success = !!resultUrl;
-      
-      setFiles((prev) => prev.map((f) => f.id === target.id ? { 
-        ...f, 
-        status: success ? "done" : "error", 
-        resultUrl: success ? resultUrl : null,
-        resultBlob: success ? resultBlob : undefined
-      } : f));
-      
-      doneCount++;
-      setProgress(Math.round((doneCount / targets.length) * 100));
-      setProcessedCount(doneCount);
+    };
+    
+    const workers = [];
+    for (let i = 0; i < maxConcurrency; i++) {
+      workers.push(worker());
     }
+    await Promise.all(workers);
     
     setTimeout(() => setGenerating(false), 400);
   };
@@ -787,7 +842,7 @@ export default function Dashboard() {
       const currentScale = activeFile.scale ?? scale;
       const currentX = activeFile.posX ?? posX;
       const currentY = activeFile.posY ?? posY;
-      const url = await drawComposition(activeFile, currentScale, currentX, currentY);
+      const url = await drawComposition(activeFile, currentScale, currentX, currentY, true);
       if (url) setLivePreviewUrl(url);
       setIsRenderingPreview(false);
     }, 150);
