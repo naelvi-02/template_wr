@@ -111,8 +111,31 @@ export function getObjectsBoundingBoxes(canvas: HTMLCanvasElement) {
 
 export async function loadAndProcessImage(asBlob: Blob, category: string | null = null): Promise<{ canvas: HTMLCanvasElement, bbox: any, originalWidth: number, originalHeight: number }> {
   // Send to backend API to prevent UI freezing
+  // Convert any image format to standard PNG using an offscreen canvas
+  // This ensures the Node.js backend can process it without "unsupported format" errors
+  const imgForConv = new Image();
+  const bmpUrl = URL.createObjectURL(asBlob);
+  await new Promise((resolve, reject) => {
+    imgForConv.onload = resolve;
+    imgForConv.onerror = reject;
+    imgForConv.src = bmpUrl;
+  });
+  const convCanvas = document.createElement("canvas");
+  convCanvas.width = imgForConv.width;
+  convCanvas.height = imgForConv.height;
+  const convCtx = convCanvas.getContext("2d");
+  if (convCtx) convCtx.drawImage(imgForConv, 0, 0);
+  
+  const standardBlob = await new Promise<Blob>((resolve, reject) => {
+    convCanvas.toBlob((b) => {
+      if (b) resolve(b);
+      else reject(new Error("Canvas toBlob failed"));
+    }, "image/png");
+  });
+  URL.revokeObjectURL(bmpUrl);
+
   const formData = new FormData();
-  formData.append("image", asBlob);
+  formData.append("image", standardBlob);
   const response = await fetch("/api/remove-bg", {
     method: "POST",
     body: formData,
