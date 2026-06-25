@@ -110,67 +110,13 @@ export function getObjectsBoundingBoxes(canvas: HTMLCanvasElement) {
 }
 
 export async function loadAndProcessImage(asBlob: Blob, category: string | null = null): Promise<{ canvas: HTMLCanvasElement, bbox: any, originalWidth: number, originalHeight: number }> {
-  // 1. DOWNSCALE FOR FAST AI PROCESSING
-  const MAX_AI_DIM = 600;
-  const originalImg = new Image();
-  const rawUrl = URL.createObjectURL(asBlob);
-  await new Promise((resolve, reject) => {
-    originalImg.onload = resolve;
-    originalImg.onerror = reject;
-    originalImg.src = rawUrl;
-  });
-
-  const aiScale = Math.min(1, Math.min(MAX_AI_DIM / originalImg.width, MAX_AI_DIM / originalImg.height));
-  const aiW = Math.floor(originalImg.width * aiScale);
-  const aiH = Math.floor(originalImg.height * aiScale);
-
-  const aiCanvas = document.createElement("canvas");
-  aiCanvas.width = aiW;
-  aiCanvas.height = aiH;
-  const aiCtx = aiCanvas.getContext("2d");
-  if (aiCtx) aiCtx.drawImage(originalImg, 0, 0, aiW, aiH);
-
-  const aiBlob = await new Promise<Blob>((resolve, reject) => {
-    aiCanvas.toBlob((b) => {
-      if (b) resolve(b);
-      else reject(new Error("Canvas toBlob failed"));
-    }, "image/png");
-  });
-  URL.revokeObjectURL(rawUrl);
-
-  // 2. RUN AI LOCALLY ON THE SMALL IMAGE (Super fast, no freeze)
   const { removeBackground } = await import("@imgly/background-removal");
-  const bgRemovedBlob = await removeBackground(aiBlob, {
+  const bgRemovedBlob = await removeBackground(asBlob, {
     progress: () => {},
-    model: "small" as any, // Cast to any to bypass TS error
   });
-  const maskUrl = URL.createObjectURL(bgRemovedBlob);
   
-  const maskImg = new Image();
-  await new Promise((resolve, reject) => {
-    maskImg.onload = resolve;
-    maskImg.onerror = reject;
-    maskImg.src = maskUrl;
-  });
-  URL.revokeObjectURL(maskUrl);
-
-  // 3. APPLY MASK TO HIGH-RES ORIGINAL IMAGE
-  const finalCanvas = document.createElement("canvas");
-  finalCanvas.width = originalImg.width;
-  finalCanvas.height = originalImg.height;
-  const finalCtx = finalCanvas.getContext("2d", { willReadFrequently: true });
-  if (!finalCtx) throw new Error("Could not get context");
-
-  finalCtx.drawImage(maskImg, 0, 0, originalImg.width, originalImg.height);
-  finalCtx.globalCompositeOperation = "source-in";
-  finalCtx.filter = 'brightness(1.03) contrast(1.05) saturate(1.05)';
-  finalCtx.drawImage(originalImg, 0, 0);
-  finalCtx.globalCompositeOperation = "source-over";
-
-  // Mock bgRemovedUrl so the rest of the original function code works perfectly!
-  const bgRemovedUrl = await new Promise<string>((resolve) => {
-    finalCanvas.toBlob((b) => resolve(URL.createObjectURL(b!)), "image/png");
-  });
+  const bgRemovedUrl = URL.createObjectURL(bgRemovedBlob);
+  
   const img = new Image();
   img.crossOrigin = "anonymous";
   await new Promise((resolve, reject) => {
@@ -179,12 +125,14 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
     img.src = bgRemovedUrl;
   });
 
-  // FULL RES CANVAS (Now already processed)
+  // FULL RES CANVAS
   const canvas = document.createElement("canvas");
   canvas.width = img.width;
   canvas.height = img.height;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Could not get context");
+
+  ctx.filter = 'brightness(1.03) contrast(1.05) saturate(1.05)';
   ctx.drawImage(img, 0, 0);
 
   // DOWNSCALED CANVAS for fast pixel processing (max 800px)
@@ -200,20 +148,16 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
   if (!lowCtx) throw new Error("Context");
   lowCtx.drawImage(canvas, 0, 0, downW, downH);
 
-  // Pixel analysis on low res...
-  const imgData = lowCtx.getImageData(0, 0, lowCanvas.width, lowCanvas.height);
+  const imgData = lowCtx.getImageData(0, 0, downW, downH);
   for (let i = 3; i < imgData.data.length; i += 4) {
-    if (imgData.data[i] < 50) {
-      imgData.data[i] = 0;
-    }
+    if (imgData.data[i] < 50) imgData.data[i] = 0;
   }
   
-  const w = lowCanvas.width;
-  const h = lowCanvas.height;
+  const w = downW;
+  const h = downH;
   const data = imgData.data;
   const compIdMap = new Int32Array(w * h);
   const components: {id: number, minX: number, maxX: number, minY: number, maxY: number, area: number}[] = [];
-  
   const q = new Int32Array(w * h);
   let nextCompId = 1;
 
@@ -284,9 +228,17 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
 
   lowCtx.putImageData(imgData, 0, 0);
 
-  // Apply cleanup to high res
+  // Apply cleanup to high-res canvas by masking
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.width = img.width;
+  maskCanvas.height = img.height;
+  const maskCtx = maskCanvas.getContext("2d")!;
+  // Draw the low-res alpha-cleared image scaled up as a mask
+  maskCtx.drawImage(lowCanvas, 0, 0, img.width, img.height);
+  
+  // Use destination-in so only the opaque parts of the mask keep the original high-res pixels
   ctx.globalCompositeOperation = "destination-in";
-  ctx.drawImage(lowCanvas, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(maskCanvas, 0, 0);
   ctx.globalCompositeOperation = "source-over";
 
   const boxes = getObjectsBoundingBoxes(lowCanvas).map(b => ({
@@ -297,13 +249,14 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
     centerX: b.centerX / scale
   }));
   
-  let finalBbox = { x: 0, y: 0, width: canvas.width, height: canvas.height };
+  let finalBbox = { x: 0, y: 0, width: img.width, height: img.height };
   let duplicateMode = false;
 
   if (boxes.length > 0) {
     const imgCenterX = img.width / 2;
     
     if (category === "Earrings") {
+      // Find the single central earring
       let bestBox = boxes[0];
       let minDiff = Math.abs(boxes[0].centerX - imgCenterX);
       for (let i = 1; i < boxes.length; i++) {
@@ -315,11 +268,13 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
       }
       finalBbox = bestBox;
       
+      // Check if it's already a pair that was merged (aspect ratio width/height > 1.2)
       const aspectRatio = finalBbox.width / finalBbox.height;
       if (aspectRatio < 1.2) {
         duplicateMode = true;
       }
     } else {
+      // Not earrings: isolate the central object
       let bestBox = boxes[0];
       let minDiff = Math.abs(boxes[0].centerX - imgCenterX);
       for (let i = 1; i < boxes.length; i++) {
@@ -331,21 +286,34 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
       }
       finalBbox = bestBox;
     }
-
-    const paddingX = finalBbox.width * 0.05;
-    const paddingY = finalBbox.height * 0.05;
-
-    finalBbox.x = Math.max(0, finalBbox.x - paddingX);
-    finalBbox.y = Math.max(0, finalBbox.y - paddingY);
-    finalBbox.width = Math.min(canvas.width - finalBbox.x, finalBbox.width + paddingX * 2);
-    finalBbox.height = Math.min(canvas.height - finalBbox.y, finalBbox.height + paddingY * 2);
-
-    if (category === "Earrings" && duplicateMode) {
-      const centerX = finalBbox.x + (finalBbox.width / 2);
-      finalBbox.width = finalBbox.width * 2.2;
-      finalBbox.x = Math.max(0, centerX - (finalBbox.width / 2));
-    }
   }
 
-  return { canvas, bbox: finalBbox, originalWidth: img.width, originalHeight: img.height };
+  let finalCanvas = document.createElement("canvas");
+  
+  if (duplicateMode) {
+    // Duplicate the single central earring side-by-side
+    const gap = Math.floor(finalBbox.width * 0.5);
+    finalCanvas.width = finalBbox.width * 2 + gap;
+    finalCanvas.height = finalBbox.height;
+    const fCtx = finalCanvas.getContext("2d")!;
+    
+    // Draw left copy
+    fCtx.drawImage(canvas, finalBbox.x, finalBbox.y, finalBbox.width, finalBbox.height, 0, 0, finalBbox.width, finalBbox.height);
+    // Draw right copy
+    fCtx.drawImage(canvas, finalBbox.x, finalBbox.y, finalBbox.width, finalBbox.height, finalBbox.width + gap, 0, finalBbox.width, finalBbox.height);
+    
+    finalBbox.width = finalCanvas.width;
+    finalBbox.x = 0; 
+    finalBbox.y = 0;
+  } else {
+    // Standard tight crop
+    finalCanvas.width = finalBbox.width;
+    finalCanvas.height = finalBbox.height;
+    const fCtx = finalCanvas.getContext("2d")!;
+    fCtx.drawImage(canvas, finalBbox.x, finalBbox.y, finalBbox.width, finalBbox.height, 0, 0, finalBbox.width, finalBbox.height);
+  }
+  
+  URL.revokeObjectURL(bgRemovedUrl);
+
+  return { canvas: finalCanvas, bbox: finalBbox, originalWidth: img.width, originalHeight: img.height };
 }
