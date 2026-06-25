@@ -840,17 +840,13 @@ export default function Dashboard() {
   
   useEffect(() => {
     if (!activeFile || activeFile.detecting || generating) return;
-    setIsRenderingPreview(true);
-    if (renderTimeout.current) clearTimeout(renderTimeout.current);
-    renderTimeout.current = setTimeout(async () => {
-      const currentScale = activeFile.scale ?? scale;
-      const currentX = activeFile.posX ?? posX;
-      const currentY = activeFile.posY ?? posY;
-      const url = await drawComposition(activeFile, currentScale, currentX, currentY, true);
-      if (url) setLivePreviewUrl(url);
-      setIsRenderingPreview(false);
-    }, 150);
-  }, [activeFile?.id, activeFile?.scale, activeFile?.posX, activeFile?.posY, scale, posX, posY, generating]);
+    
+    if (activeFile.status === "done" && activeFile.resultUrl) {
+      setLivePreviewUrl(activeFile.resultUrl);
+    } else {
+      setLivePreviewUrl(activeFile.url);
+    }
+  }, [activeFile?.id, activeFile?.status, generating]);
 
   const doneFiles = files.filter((f) => f.status === "done" && !f.exported);
   const pendingTargets = files.filter((f) => !f.detecting && f.status !== "done");
