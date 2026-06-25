@@ -38,6 +38,9 @@ interface JewelryFile {
   brightness?: number;
   contrast?: number;
   saturate?: number;
+  detailScale?: number;
+  detailPosX?: number;
+  detailPosY?: number;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -701,63 +704,71 @@ export default function Dashboard() {
         ctx.arc(circleX, circleY, circleRadius - 5, 0, Math.PI * 2);
         ctx.clip();
         
-        let detW = 0;
-        let detH = 0;
-        let cropX = 0;
-        let cropY = 0;
         let cropW = detailCropped.width;
         let cropH = detailCropped.height;
 
         // CENTER LOCK: Always center the crop on the original detail image
         const origW = resDetails.originalWidth;
         const origH = resDetails.originalHeight;
-        const absCx = origW / 2;
-        const absCy = origH / 2;
+        let absCx = origW / 2;
+        let absCy = origH / 2;
+
+        let size = Math.max(origW, origH);
+        const isNecklace = target.category === "Necklace";
+        
+        if (target.claspBbox) {
+          const absW = target.claspBbox.w * origW;
+          const absH = target.claspBbox.h * origH;
+          size = Math.max(absW, absH) * (isNecklace ? 1.6 : 1.05); 
+          const minSize = Math.max(origW * 0.05, 80);
+          if (size < minSize) size = minSize;
+        } else {
+          // FALLBACK
+          size = Math.max(origW, origH) * (isNecklace ? 0.35 : 0.25);
+        }
+
+        // Apply Manual Detail Adjustments
+        const dScale = target.detailScale ?? 100;
+        absCx += (target.detailPosX ?? 0);
+        absCy += (target.detailPosY ?? 0);
+        
+        size = size / (dScale / 100);
+
+        const maxSize = Math.max(origW, origH) * 2; // Allow zooming out more
+        if (size > maxSize) size = maxSize;
+
         const croppedCx = absCx - resDetails.bbox.x;
         const croppedCy = absCy - resDetails.bbox.y;
 
-        if (target.claspBbox) {
-          // Use AI ONLY for sizing (w and h), ignore its cx and cy
-          const absW = target.claspBbox.w * origW;
-          const absH = target.claspBbox.h * origH;
-          // Map to cropped canvas
-          const croppedCx = absCx - resDetails.bbox.x;
-          const croppedCy = absCy - resDetails.bbox.y;
-          
-          // Necklaces need larger padding so they don't look overly zoomed in compared to bracelets
-          const isNecklace = target.category === "Necklace";
-          let size = Math.max(absW, absH) * (isNecklace ? 1.6 : 1.05); 
-          
-          // Enforce a smaller minimum zoom size (5% of image or 80px) to ALLOW tight zooming
-          const minSize = Math.max(origW * 0.05, 80);
-          if (size < minSize) {
-            size = minSize;
-          }
-
-          // Enforce a maximum size to prevent the crop from exceeding the image bounds
-          const maxSize = Math.min(origW, origH);
-          if (size > maxSize) {
-            size = maxSize;
-          }
-
-          cropX = croppedCx - size / 2;
-          cropY = croppedCy - size / 2;
-          cropW = size;
-          cropH = size;
-        } else {
-          // FALLBACK: If AI completely fails
-          const isNecklace = target.category === "Necklace";
-          let size = Math.max(origW, origH) * (isNecklace ? 0.35 : 0.25);
-          cropX = croppedCx - size / 2;
-          cropY = croppedCy - size / 2;
-          cropW = size;
-          cropH = size;
-        }
+        const cropX = croppedCx - size / 2;
+        const cropY = croppedCy - size / 2;
+        cropW = size;
+        cropH = size;
 
         // Scale crop area to fit nicely
         const detScale = (circleRadius * 2) / Math.max(cropW, cropH);
-        detW = cropW * detScale;
-        detH = cropH * detScale;
+        const detW = cropW * detScale;
+        const detH = cropH * detScale;
+
+        // Apply lighting if needed
+        let filterStr = "none";
+        try {
+          const autoLighting = (target.autoAdjust ?? globalAutoAdjust) 
+            ? calculateAutoLighting(mainCropped as HTMLCanvasElement) 
+            : { brightness: 100, contrast: 100, saturate: 100 };
+          
+          const manualB = (target.brightness ?? globalBrightness);
+          const manualC = (target.contrast ?? globalContrast);
+          const manualS = (target.saturate ?? globalSaturate);
+          
+          const finalB = Math.max(0, autoLighting.brightness + (manualB - 100)) / 100;
+          const finalC = Math.max(0, autoLighting.contrast + (manualC - 100)) / 100;
+          const finalS = Math.max(0, autoLighting.saturate + (manualS - 100)) / 100;
+          
+          filterStr = `brightness(${finalB}) contrast(${finalC}) saturate(${finalS})`;
+        } catch (e) {}
+
+        ctx.filter = filterStr;
 
         // Draw cropped detail image into the circle
         ctx.drawImage(
@@ -912,12 +923,33 @@ export default function Dashboard() {
   useEffect(() => {
     if (!activeFile || activeFile.detecting || generating) return;
     
-    if (activeFile.status === "done" && activeFile.resultUrl) {
-      setLivePreviewUrl(activeFile.resultUrl);
+    if (activeFile.status === "done") {
+      setIsRenderingPreview(true);
+      if (renderTimeout.current) clearTimeout(renderTimeout.current);
+      renderTimeout.current = setTimeout(async () => {
+        const url = await drawComposition(activeFile, activeFile.scale ?? scale, activeFile.posX ?? posX, activeFile.posY ?? posY, false);
+        if (url) {
+          try {
+            const res = await fetch(url);
+            const blob = await res.blob();
+            // Important: only update if it actually changed to avoid infinite loops, but blob URLs are always new.
+            // So we just update files state. Since we don't depend on activeFile.resultUrl, it's safe.
+            setFiles(prev => prev.map(f => f.id === activeFile.id ? { ...f, resultUrl: url, resultBlob: blob } : f));
+            setLivePreviewUrl(url);
+          } catch(e) {}
+        }
+        setIsRenderingPreview(false);
+      }, 400);
     } else {
       setLivePreviewUrl(activeFile.url);
     }
-  }, [activeFile?.id, activeFile?.status, generating]);
+  }, [
+    activeFile?.id, activeFile?.status, generating,
+    activeFile?.scale, activeFile?.posX, activeFile?.posY,
+    activeFile?.autoAdjust, activeFile?.brightness, activeFile?.contrast, activeFile?.saturate,
+    activeFile?.detailScale, activeFile?.detailPosX, activeFile?.detailPosY,
+    scale, posX, posY, globalAutoAdjust, globalBrightness, globalContrast, globalSaturate
+  ]);
 
   const doneFiles = files.filter((f) => f.status === "done" && !f.exported);
   const pendingTargets = files.filter((f) => !f.detecting && f.status !== "done");
@@ -1121,21 +1153,34 @@ webkitdirectory="" directory="" className="hidden" onChange={(e) => e.target.fil
                   if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, saturate: val } : f));
                   else setGlobalSaturate(val);
                 }} />
-                <Slider label="Scale" value={activeFile?.scale ?? 100} min={40} max={320} step={2} unit="%" icon={<ZoomIn size={14} strokeWidth={2.2} />} onChange={(val) => {
+                <Slider label="Main Scale" value={activeFile?.scale ?? 100} min={40} max={320} step={2} unit="%" icon={<ZoomIn size={14} strokeWidth={2.2} />} onChange={(val) => {
                   if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, scale: val } : f));
                   else setScale(val);
                 }} />
-                <Slider label="Position X" value={activeFile?.posX ?? 0} min={-400} max={400} step={2} unit="px" icon={<Move size={14} strokeWidth={2.2} />} onChange={(val) => {
+                <Slider label="Main Pos X" value={activeFile?.posX ?? 0} min={-400} max={400} step={2} unit="px" icon={<Move size={14} strokeWidth={2.2} />} onChange={(val) => {
                   if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, posX: val } : f));
                   else setPosX(val);
                 }} />
-                <Slider label="Position Y" value={activeFile?.posY ?? 0} min={-400} max={400} step={2} unit="px" icon={<Move size={14} strokeWidth={2.2} />} onChange={(val) => {
+                <Slider label="Main Pos Y" value={activeFile?.posY ?? 0} min={-400} max={400} step={2} unit="px" icon={<Move size={14} strokeWidth={2.2} />} onChange={(val) => {
                   if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, posY: val } : f));
                   else setPosY(val);
                 }} />
+                <div className="h-px bg-[#EDEDF3] my-2" />
+                <div className="text-xs font-semibold text-[#8A8A9E] mb-1">Detail Inset Adjustments</div>
+                <Slider label="Detail Scale" value={activeFile?.detailScale ?? 100} min={20} max={400} step={2} unit="%" icon={<ZoomIn size={14} strokeWidth={2.2} />} onChange={(val) => {
+                  if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, detailScale: val } : f));
+                }} />
+                <Slider label="Detail Pos X" value={activeFile?.detailPosX ?? 0} min={-600} max={600} step={2} unit="px" icon={<Move size={14} strokeWidth={2.2} />} onChange={(val) => {
+                  if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, detailPosX: val } : f));
+                }} />
+                <Slider label="Detail Pos Y" value={activeFile?.detailPosY ?? 0} min={-600} max={600} step={2} unit="px" icon={<Move size={14} strokeWidth={2.2} />} onChange={(val) => {
+                  if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, detailPosY: val } : f));
+                }} />
+                
+                
               </div>
               <button onClick={() => { 
-                if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, scale: undefined, posX: undefined, posY: undefined, autoAdjust: undefined, brightness: undefined, contrast: undefined, saturate: undefined } : f));
+                if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, scale: undefined, posX: undefined, posY: undefined, autoAdjust: undefined, brightness: undefined, contrast: undefined, saturate: undefined, detailScale: undefined, detailPosX: undefined, detailPosY: undefined } : f));
                 else { setScale(100); setPosX(0); setPosY(0); setGlobalAutoAdjust(true); setGlobalBrightness(100); setGlobalContrast(100); setGlobalSaturate(100); }
               }} className="flex items-center gap-2 text-xs font-medium text-[#8A8A9E] hover:text-[#E53E3E] transition-colors self-start"><RotateCcw size={12} strokeWidth={2.2} /> Reset ke default</button>
               <div className="h-px bg-[#EDEDF3]" />
