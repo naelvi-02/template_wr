@@ -572,7 +572,7 @@ export default function Dashboard() {
       let detailCropped: HTMLImageElement | HTMLCanvasElement | null = null;
       let resDetails: any = null;
 
-      const cacheKey = target.id;
+      const cacheKey = target.kembarId || target.id;
 
       if (false) {
       } else {
