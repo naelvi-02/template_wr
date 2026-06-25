@@ -5,9 +5,9 @@ import {
   CheckCircle2, RotateCcw, FolderOpen, Cpu, ChevronRight,
   ImageIcon, Clock, AlertCircle, Eye, PackageOpen, Settings,
   User, Lock, Eye as EyeIcon, EyeOff, Save, ShieldCheck, Plus, Archive
-} from "lucide-react";
+, Sun, Contrast, Droplet, Play, Pause, Square} from "lucide-react";
 import JSZip from "jszip";
-import { parseFilename, loadAndProcessImage } from "@/lib/imageProcessor";
+import { parseFilename, loadAndProcessImage, calculateAutoLighting } from "@/lib/imageProcessor";
 import { Project, getProjects, createProject, deleteProject, saveProjectFiles, getProjectFiles, StoredJewelryFile } from "@/lib/db";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -34,6 +34,10 @@ interface JewelryFile {
   scale?: number;
   posX?: number;
   posY?: number;
+  autoAdjust?: boolean;
+  brightness?: number;
+  contrast?: number;
+  saturate?: number;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -281,6 +285,14 @@ export default function Dashboard() {
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [files, setFiles] = useState<JewelryFile[]>([]);
+  const [globalAutoAdjust, setGlobalAutoAdjust] = useState(true);
+  const [globalBrightness, setGlobalBrightness] = useState(100);
+  const [globalContrast, setGlobalContrast] = useState(100);
+  const [globalSaturate, setGlobalSaturate] = useState(100);
+  
+  const [generateState, setGenerateState] = useState<"idle" | "generating" | "paused">("idle");
+  const stopSignal = useRef(false);
+  const pauseSignal = useRef(false);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const processCache = useRef(new Map<string, { mainCropped: HTMLCanvasElement, mainBbox: any }>());
@@ -630,8 +642,29 @@ export default function Dashboard() {
         cy = 0 + currentY; // Y=0 touches the top border precisely
       }
 
+      // Lighting Adjustment Logic
+      let filterStr = "none";
+      try {
+        const autoLighting = (target.autoAdjust ?? globalAutoAdjust) 
+          ? calculateAutoLighting(mainCropped as HTMLCanvasElement) 
+          : { brightness: 100, contrast: 100, saturate: 100 };
+        
+        const manualB = (target.brightness ?? globalBrightness);
+        const manualC = (target.contrast ?? globalContrast);
+        const manualS = (target.saturate ?? globalSaturate);
+        
+        const finalB = Math.max(0, autoLighting.brightness + (manualB - 100)) / 100;
+        const finalC = Math.max(0, autoLighting.contrast + (manualC - 100)) / 100;
+        const finalS = Math.max(0, autoLighting.saturate + (manualS - 100)) / 100;
+        
+        filterStr = `brightness(${finalB}) contrast(${finalC}) saturate(${finalS})`;
+      } catch (e) {
+        console.error("Error calculating lighting:", e);
+      }
+
       // Add a slight drop shadow for realism
       ctx.save();
+      ctx.filter = filterStr;
       ctx.shadowColor = "rgba(0,0,0,0.1)";
       ctx.shadowBlur = 20;
       ctx.shadowOffsetY = 10;
@@ -775,11 +808,33 @@ export default function Dashboard() {
     }
   };
 
+  const handlePause = () => {
+    pauseSignal.current = true;
+    setGenerateState("paused");
+  };
+
+  const handleStop = () => {
+    stopSignal.current = true;
+    pauseSignal.current = false;
+    setGenerateState("idle");
+    setGenerating(false);
+    setFiles(prev => prev.map(f => f.status === "processing" ? { ...f, status: "queued" } : f));
+  };
+
   const handleGenerate = async () => {
+    if (generateState === "paused") {
+      pauseSignal.current = false;
+      setGenerateState("generating");
+      return;
+    }
+
     const targets = files.filter((f) => !f.detecting && f.status !== "done");
     if (!targets.length || generating) return;
 
     setGenerating(true);
+    setGenerateState("generating");
+    stopSignal.current = false;
+    pauseSignal.current = false;
     setProgress(0);
     setProcessedCount(0);
 
@@ -791,6 +846,15 @@ export default function Dashboard() {
     
     const worker = async () => {
       while (index < targets.length) {
+        if (stopSignal.current) break;
+        
+        while (pauseSignal.current) {
+          if (stopSignal.current) break;
+          await new Promise(r => setTimeout(r, 200));
+        }
+        
+        if (stopSignal.current) break;
+
         const target = targets[index++];
         setFiles((prev) => prev.map((f) => f.id === target.id ? { ...f, status: "processing" } : f));
         
@@ -807,6 +871,8 @@ export default function Dashboard() {
              resultUrl = null;
           }
         }
+
+        if (stopSignal.current) break; // Check again after long async operation
 
         const success = !!resultUrl;
         setFiles((prev) => prev.map((f) => f.id === target.id ? { 
@@ -828,7 +894,12 @@ export default function Dashboard() {
     }
     await Promise.all(workers);
     
-    setTimeout(() => setGenerating(false), 400);
+    if (!stopSignal.current) {
+      setTimeout(() => {
+        setGenerating(false);
+        setGenerateState("idle");
+      }, 400);
+    }
   };
 
   // Preview Updater
@@ -1027,6 +1098,29 @@ webkitdirectory="" directory="" className="hidden" onChange={(e) => e.target.fil
             <div className="rounded-3xl p-7 flex flex-col gap-6" style={{ background: "rgba(255,255,255,0.8)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.95)", boxShadow: "0 8px 40px rgba(0,0,0,0.07), 0 2px 8px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.9)" }}>
               <div><h2 className="text-base font-bold text-[#1A1A2E] tracking-tight">Adjustments</h2><p className="text-xs text-[#8A8A9E] mt-0.5">Berlaku untuk export massal nanti</p></div>
               <div className="flex flex-col gap-6">
+                <div className="flex items-center justify-between px-1 mb-2">
+                  <span className="text-sm font-semibold text-[#1A1A2E]">Auto Adjust Lighting</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" className="sr-only peer" checked={activeFile?.autoAdjust ?? globalAutoAdjust} onChange={(e) => {
+                      const val = e.target.checked;
+                      if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, autoAdjust: val } : f));
+                      else setGlobalAutoAdjust(val);
+                    }} />
+                    <div className="w-9 h-5 bg-[#EDEDF3] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#38A169]"></div>
+                  </label>
+                </div>
+                <Slider label="Brightness" value={activeFile?.brightness ?? globalBrightness} min={0} max={200} step={2} unit="%" icon={<Sun size={14} strokeWidth={2.2} />} onChange={(val) => {
+                  if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, brightness: val } : f));
+                  else setGlobalBrightness(val);
+                }} />
+                <Slider label="Contrast" value={activeFile?.contrast ?? globalContrast} min={0} max={200} step={2} unit="%" icon={<Contrast size={14} strokeWidth={2.2} />} onChange={(val) => {
+                  if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, contrast: val } : f));
+                  else setGlobalContrast(val);
+                }} />
+                <Slider label="Saturation" value={activeFile?.saturate ?? globalSaturate} min={0} max={200} step={2} unit="%" icon={<Droplet size={14} strokeWidth={2.2} />} onChange={(val) => {
+                  if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, saturate: val } : f));
+                  else setGlobalSaturate(val);
+                }} />
                 <Slider label="Scale" value={activeFile?.scale ?? 100} min={40} max={320} step={2} unit="%" icon={<ZoomIn size={14} strokeWidth={2.2} />} onChange={(val) => {
                   if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, scale: val } : f));
                   else setScale(val);
@@ -1041,8 +1135,8 @@ webkitdirectory="" directory="" className="hidden" onChange={(e) => e.target.fil
                 }} />
               </div>
               <button onClick={() => { 
-                if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, scale: undefined, posX: undefined, posY: undefined } : f));
-                else { setScale(100); setPosX(0); setPosY(0); }
+                if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, scale: undefined, posX: undefined, posY: undefined, autoAdjust: undefined, brightness: undefined, contrast: undefined, saturate: undefined } : f));
+                else { setScale(100); setPosX(0); setPosY(0); setGlobalAutoAdjust(true); setGlobalBrightness(100); setGlobalContrast(100); setGlobalSaturate(100); }
               }} className="flex items-center gap-2 text-xs font-medium text-[#8A8A9E] hover:text-[#E53E3E] transition-colors self-start"><RotateCcw size={12} strokeWidth={2.2} /> Reset ke default</button>
               <div className="h-px bg-[#EDEDF3]" />
               {(generating || processedCount > 0) && (
@@ -1051,9 +1145,20 @@ webkitdirectory="" directory="" className="hidden" onChange={(e) => e.target.fil
                   <div className="relative h-2 rounded-full bg-[#EDEDF3] overflow-hidden"><div className="absolute top-0 left-0 h-full rounded-full transition-all duration-500" style={{ width: `${progress}%`, background: "linear-gradient(to right, #E53E3E, #FC8181)" }} /></div>
                 </div>
               )}
-              <button onClick={handleGenerate} disabled={generating || !allReady || pendingTargets.length === 0} className="relative w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl text-white font-semibold text-sm transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed" style={{ background: "linear-gradient(135deg, #E53E3E 0%, #FC8181 100%)", boxShadow: allReady && pendingTargets.length > 0 && !generating ? "0 8px 32px rgba(229,62,62,0.4), 0 2px 8px rgba(229,62,62,0.2)" : "none" }}>
-                {generating ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /><span>Memproses foto…</span></> : <><Sparkles size={16} strokeWidth={2.2} /><span>Generate {pendingTargets.length > 0 ? `${pendingTargets.length} Foto` : "Foto"}</span></>}
-              </button>
+              {generateState !== "idle" ? (
+                <div className="flex gap-2">
+                  <button onClick={generateState === "paused" ? handleGenerate : handlePause} className="flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl text-white font-semibold text-sm transition-all hover:opacity-90" style={{ background: generateState === "paused" ? "linear-gradient(135deg, #38A169 0%, #48BB78 100%)" : "linear-gradient(135deg, #DD6B20 0%, #ED8936 100%)", boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }}>
+                    {generateState === "paused" ? <><Play size={16} strokeWidth={2.2} /> Lanjut</> : <><Pause size={16} strokeWidth={2.2} /> Jeda</>}
+                  </button>
+                  <button onClick={handleStop} className="flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl text-white font-semibold text-sm transition-all hover:opacity-90" style={{ background: "linear-gradient(135deg, #E53E3E 0%, #FC8181 100%)", boxShadow: "0 4px 16px rgba(229,62,62,0.3)" }}>
+                    <Square size={16} strokeWidth={2.2} /> Stop
+                  </button>
+                </div>
+              ) : (
+                <button onClick={handleGenerate} disabled={!allReady || pendingTargets.length === 0} className="relative w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl text-white font-semibold text-sm transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed" style={{ background: "linear-gradient(135deg, #E53E3E 0%, #FC8181 100%)", boxShadow: allReady && pendingTargets.length > 0 ? "0 8px 32px rgba(229,62,62,0.4), 0 2px 8px rgba(229,62,62,0.2)" : "none" }}>
+                  <Sparkles size={16} strokeWidth={2.2} /><span>Generate {pendingTargets.length > 0 ? `${pendingTargets.length} Foto` : "Foto"}</span>
+                </button>
+              )}
               <button disabled={doneFiles.length === 0} onClick={() => { 
                 doneFiles.forEach((file, index) => { 
                   const url = file.resultUrl; 
