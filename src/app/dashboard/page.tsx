@@ -559,27 +559,7 @@ export default function Dashboard() {
 
       const cacheKey = target.id;
 
-      if (isPreview) {
-        // FAST PREVIEW: Just load raw image without AI background removal!
-        const loadRaw = async (file: File) => {
-          const url = URL.createObjectURL(file);
-          const img = new Image();
-          await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = reject;
-            img.src = url;
-          });
-          URL.revokeObjectURL(url);
-          return img;
-        };
-
-        mainCropped = await loadRaw(target.file);
-        mainBbox = { x: 0, y: 0, width: mainCropped.width, height: mainCropped.height };
-
-        if (target.detailFile) {
-          detailCropped = await loadRaw(target.detailFile);
-          resDetails = { bbox: { x: 0, y: 0, width: detailCropped.width, height: detailCropped.height }, originalWidth: detailCropped.width, originalHeight: detailCropped.height };
-        }
+      if (false) {
       } else {
         // GENERATE MODE: Full AI processing
         if (processCache.current.has(cacheKey)) {
