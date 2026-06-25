@@ -110,11 +110,19 @@ export function getObjectsBoundingBoxes(canvas: HTMLCanvasElement) {
 }
 
 export async function loadAndProcessImage(asBlob: Blob, category: string | null = null): Promise<{ canvas: HTMLCanvasElement, bbox: any, originalWidth: number, originalHeight: number }> {
-  const { removeBackground } = await import("@imgly/background-removal");
-  const bgRemovedBlob = await removeBackground(asBlob, {
-    progress: () => {},
+  // Send to backend API to prevent UI freezing
+  const formData = new FormData();
+  formData.append("image", asBlob);
+  const response = await fetch("/api/remove-bg", {
+    method: "POST",
+    body: formData,
   });
-  
+
+  if (!response.ok) {
+    throw new Error("Failed to remove background from backend");
+  }
+
+  const bgRemovedBlob = await response.blob();
   const bgRemovedUrl = URL.createObjectURL(bgRemovedBlob);
   
   const img = new Image();
