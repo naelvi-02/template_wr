@@ -717,11 +717,19 @@ export default function Dashboard() {
         const isNecklace = target.category === "Necklace";
         
         if (target.claspBbox) {
+          // Update center to the AI's detected bounding box
+          absCx = target.claspBbox.cx * origW;
+          absCy = target.claspBbox.cy * origH;
+
           const absW = target.claspBbox.w * origW;
           const absH = target.claspBbox.h * origH;
           size = Math.max(absW, absH) * (isNecklace ? 1.6 : 1.05); 
-          const minSize = Math.max(origW * 0.05, 80);
+          
+          // Clamp size to prevent extreme zoom-in or zoom-out
+          const minSize = Math.max(origW * 0.15, 120);
+          const maxSizeAI = Math.max(origW * 0.5, 300);
           if (size < minSize) size = minSize;
+          if (size > maxSizeAI) size = maxSizeAI;
         } else {
           // FALLBACK
           size = Math.max(origW, origH) * (isNecklace ? 0.35 : 0.25);
