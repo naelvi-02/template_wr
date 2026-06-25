@@ -125,6 +125,7 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
     img.src = bgRemovedUrl;
   });
 
+  // FULL RES CANVAS
   const canvas = document.createElement("canvas");
   canvas.width = img.width;
   canvas.height = img.height;
@@ -134,17 +135,26 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
   ctx.filter = 'brightness(1.03) contrast(1.05) saturate(1.05)';
   ctx.drawImage(img, 0, 0);
 
-  // Clean up faint artifacts left by background removal
-  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  // DOWNSCALED CANVAS for fast pixel processing (max 800px)
+  const MAX_DIM = 800;
+  const scale = Math.min(1, Math.min(MAX_DIM / img.width, MAX_DIM / img.height));
+  const downW = Math.floor(img.width * scale);
+  const downH = Math.floor(img.height * scale);
+
+  const lowCanvas = document.createElement("canvas");
+  lowCanvas.width = downW;
+  lowCanvas.height = downH;
+  const lowCtx = lowCanvas.getContext("2d", { willReadFrequently: true });
+  if (!lowCtx) throw new Error("Context");
+  lowCtx.drawImage(canvas, 0, 0, downW, downH);
+
+  const imgData = lowCtx.getImageData(0, 0, downW, downH);
   for (let i = 3; i < imgData.data.length; i += 4) {
-    if (imgData.data[i] < 50) {
-      imgData.data[i] = 0;
-    }
+    if (imgData.data[i] < 50) imgData.data[i] = 0;
   }
   
-  // Filter out disconnected small components (like barcode tags at the bottom)
-  const w = canvas.width;
-  const h = canvas.height;
+  const w = downW;
+  const h = downH;
   const data = imgData.data;
   const compIdMap = new Int32Array(w * h);
   const components: {id: number, minX: number, maxX: number, minY: number, maxY: number, area: number}[] = [];
@@ -199,26 +209,46 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
     }
   }
 
-    if (components.length > 0) {
-      const maxArea = Math.max(...components.map(c => c.area));
-      // Aggressively remove tags at the bottom, keep main jewelry
-      const validIds = new Set(components.filter(c => {
-        const isAtBottom = c.minY > h * 0.65; // Component starts in bottom 35%
-        if (isAtBottom && c.area < maxArea * 0.4) return false; // Highly likely a barcode tag
-        return c.area >= maxArea * 0.08; // Safe threshold for earrings/pendants
-      }).map(c => c.id));
-      
-      for (let i = 0; i < w * h; i++) {
-        const id = compIdMap[i];
-        if (id > 0 && !validIds.has(id)) {
+  const validIds = new Set<number>();
+  if (components.length > 0) {
+    const maxArea = Math.max(...components.map(c => c.area));
+    components.forEach(c => {
+      const isAtBottom = c.minY > h * 0.65; 
+      if (isAtBottom && c.area < maxArea * 0.4) return;
+      if (c.area >= maxArea * 0.08) validIds.add(c.id);
+    });
+    
+    for (let i = 0; i < w * h; i++) {
+      const id = compIdMap[i];
+      if (id > 0 && !validIds.has(id)) {
         data[i * 4 + 3] = 0;
       }
     }
   }
 
-  ctx.putImageData(imgData, 0, 0);
+  lowCtx.putImageData(imgData, 0, 0);
 
-  const boxes = getObjectsBoundingBoxes(canvas);
+  // Apply cleanup to high-res canvas by masking
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.width = img.width;
+  maskCanvas.height = img.height;
+  const maskCtx = maskCanvas.getContext("2d")!;
+  // Draw the low-res alpha-cleared image scaled up as a mask
+  maskCtx.drawImage(lowCanvas, 0, 0, img.width, img.height);
+  
+  // Use destination-in so only the opaque parts of the mask keep the original high-res pixels
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.drawImage(maskCanvas, 0, 0);
+  ctx.globalCompositeOperation = "source-over";
+
+  const boxes = getObjectsBoundingBoxes(lowCanvas).map(b => ({
+    x: b.x / scale,
+    y: b.y / scale,
+    width: b.width / scale,
+    height: b.height / scale,
+    centerX: b.centerX / scale
+  }));
+  
   let finalBbox = { x: 0, y: 0, width: img.width, height: img.height };
   let duplicateMode = false;
 
