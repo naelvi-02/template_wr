@@ -1,10 +1,20 @@
 import { NextResponse } from "next/server";
 
+let currentKeyIndex = 0;
+
 export async function POST(req: Request) {
   try {
     const { prompt, imageBase64 } = await req.json();
 
-    const groqKey = process.env.GROQ_API_KEY || "";
+    const FALLBACK_KEYS = [
+      process.env.GROQ_API_KEY,
+      process.env.GROQ_API_KEY_2,
+      process.env.GROQ_API_KEY_3
+    ].filter(Boolean) as string[];
+
+    if (FALLBACK_KEYS.length === 0) {
+      return NextResponse.json({ error: "No Groq API keys configured" }, { status: 500 });
+    }
 
     const payload: any = {
       model: "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -29,19 +39,42 @@ export async function POST(req: Request) {
       });
     }
 
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${groqKey}`
-      },
-      body: JSON.stringify(payload),
-    });
+    let response;
+    let attempts = 0;
+    const maxAttempts = FALLBACK_KEYS.length;
+    let errorText = "";
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Groq API Error:", errorText);
-      return NextResponse.json({ error: "Failed to fetch from Groq", details: errorText }, { status: response.status });
+    while (attempts < maxAttempts) {
+      const groqKey = FALLBACK_KEYS[currentKeyIndex];
+      
+      response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${groqKey}`
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        break; // Success
+      }
+
+      errorText = await response.text();
+      console.error(`Groq API Error with key index ${currentKeyIndex}:`, errorText);
+      
+      if (response.status === 429) {
+        // Rate limit reached, try the next key
+        currentKeyIndex = (currentKeyIndex + 1) % FALLBACK_KEYS.length;
+        attempts++;
+      } else {
+        // Other error (e.g. 400 Bad Request), don't retry
+        break;
+      }
+    }
+
+    if (!response || !response.ok) {
+      return NextResponse.json({ error: "Failed to fetch from Groq after all retries", details: errorText }, { status: response?.status || 500 });
     }
 
     const data = await response.json();
