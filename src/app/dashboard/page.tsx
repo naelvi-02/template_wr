@@ -972,11 +972,23 @@ webkitdirectory="" directory="" className="hidden" onChange={(e) => e.target.fil
             <div className="rounded-3xl p-7 flex flex-col gap-6" style={{ background: "rgba(255,255,255,0.8)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.95)", boxShadow: "0 8px 40px rgba(0,0,0,0.07), 0 2px 8px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.9)" }}>
               <div><h2 className="text-base font-bold text-[#1A1A2E] tracking-tight">Adjustments</h2><p className="text-xs text-[#8A8A9E] mt-0.5">Berlaku untuk export massal nanti</p></div>
               <div className="flex flex-col gap-6">
-                <Slider label="Scale" value={scale} min={40} max={320} step={2} unit="%" icon={<ZoomIn size={14} strokeWidth={2.2} />} onChange={setScale} />
-                <Slider label="Position X" value={posX} min={-400} max={400} step={2} unit="px" icon={<Move size={14} strokeWidth={2.2} />} onChange={setPosX} />
-                <Slider label="Position Y" value={posY} min={-400} max={400} step={2} unit="px" icon={<Move size={14} strokeWidth={2.2} />} onChange={setPosY} />
+                <Slider label="Scale" value={activeFile?.scale ?? 100} min={40} max={320} step={2} unit="%" icon={<ZoomIn size={14} strokeWidth={2.2} />} onChange={(val) => {
+                  if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, scale: val } : f));
+                  else setScale(val);
+                }} />
+                <Slider label="Position X" value={activeFile?.posX ?? 0} min={-400} max={400} step={2} unit="px" icon={<Move size={14} strokeWidth={2.2} />} onChange={(val) => {
+                  if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, posX: val } : f));
+                  else setPosX(val);
+                }} />
+                <Slider label="Position Y" value={activeFile?.posY ?? 0} min={-400} max={400} step={2} unit="px" icon={<Move size={14} strokeWidth={2.2} />} onChange={(val) => {
+                  if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, posY: val } : f));
+                  else setPosY(val);
+                }} />
               </div>
-              <button onClick={() => { setScale(100); setPosX(0); setPosY(0); }} className="flex items-center gap-2 text-xs font-medium text-[#8A8A9E] hover:text-[#E53E3E] transition-colors self-start"><RotateCcw size={12} strokeWidth={2.2} /> Reset ke default</button>
+              <button onClick={() => { 
+                if (activeFile) setFiles(prev => prev.map(f => f.id === activeFile.id || (activeFile.kembarId && f.kembarId === activeFile.kembarId) ? { ...f, scale: undefined, posX: undefined, posY: undefined } : f));
+                else { setScale(100); setPosX(0); setPosY(0); }
+              }} className="flex items-center gap-2 text-xs font-medium text-[#8A8A9E] hover:text-[#E53E3E] transition-colors self-start"><RotateCcw size={12} strokeWidth={2.2} /> Reset ke default</button>
               <div className="h-px bg-[#EDEDF3]" />
               {(generating || processedCount > 0) && (
                 <div className="flex flex-col gap-3">
