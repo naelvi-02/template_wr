@@ -89,7 +89,7 @@ const StatusBadge = React.memo(function StatusBadge({ status }: { status: FileSt
       {m.icon} {m.label}
     </span>
   );
-}
+});
 
 // ─── Settings Page ────────────────────────────────────────────────────────────
 function SettingsPage() {
