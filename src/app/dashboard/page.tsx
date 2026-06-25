@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   Upload, Gem, LogOut, Download, Sparkles, Move, ZoomIn, X,
   CheckCircle2, RotateCcw, FolderOpen, Cpu, ChevronRight,
@@ -54,7 +54,7 @@ const STATUS_META: Record<FileStatus, { label: string; color: string; bg: string
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
-function Slider({
+const Slider = React.memo(function Slider({
   label, value, min, max, step = 1, unit = "", icon, onChange,
 }: {
   label: string; value: number; min: number; max: number;
@@ -80,9 +80,9 @@ function Slider({
       </div>
     </div>
   );
-}
+});
 
-function StatusBadge({ status }: { status: FileStatus }) {
+const StatusBadge = React.memo(function StatusBadge({ status }: { status: FileStatus }) {
   const m = STATUS_META[status];
   return (
     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold" style={{ color: m.color, background: m.bg }}>
@@ -298,7 +298,7 @@ export default function Dashboard() {
   const pauseSignal = useRef(false);
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  const processCache = useRef(new Map<string, { mainCropped: HTMLCanvasElement, mainBbox: any }>());
+  const processCache = useRef(new Map<string, { mainCropped: HTMLCanvasElement, mainBbox: any, autoLighting?: {brightness: number, contrast: number, saturate: number} }>());
   const kembarDetailCache = useRef(new Map<string, { detailCropped: HTMLCanvasElement | null, resDetails: any }>());
 
   // Load Projects on Mount
@@ -330,16 +330,20 @@ export default function Dashboard() {
     });
   }, [activeProjectId]);
 
-  // Auto-Save Files when they change
+    // Auto-Save Files when they change
+  const saveTimeout = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
     if (!activeProjectId) return;
     
-    const toStore: StoredJewelryFile[] = files.map(f => {
-      const { url, detailUrl, resultUrl, ...rest } = f;
-      return rest;
-    });
-    
-    saveProjectFiles(activeProjectId, toStore).catch(console.error);
+    if (saveTimeout.current) clearTimeout(saveTimeout.current);
+    saveTimeout.current = setTimeout(() => {
+      const toStore: StoredJewelryFile[] = files.map(f => {
+        // DO NOT save resultBlob to prevent 100MB+ IndexedDB writes
+        const { url, detailUrl, resultUrl, resultBlob, ...rest } = f;
+        return rest;
+      });
+      saveProjectFiles(activeProjectId, toStore).catch(console.error);
+    }, 2000); // 2 second debounce
   }, [files, activeProjectId]);
   const [isDragging, setIsDragging] = useState(false);
   const [scale, setScale] = useState(100);
@@ -1120,7 +1124,7 @@ webkitdirectory="" directory="" className="hidden" onChange={(e) => e.target.fil
                 <div className="p-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
                   {files.map((f) => (
                     <div key={f.id} onClick={() => { setActiveId(f.id); setLivePreviewUrl(null); }} className="relative rounded-xl overflow-hidden cursor-pointer group transition-all bg-white" style={{ aspectRatio: "1/1", border: activeId === f.id ? "2px solid #E53E3E" : "2px solid transparent", boxShadow: activeId === f.id ? "0 0 0 3px rgba(229,62,62,0.15)" : "0 2px 8px rgba(0,0,0,0.06)" }}>
-                      <img src={f.resultUrl || f.url} alt={f.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                      <img src={f.resultUrl || f.url} alt={f.name} loading="lazy" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 bg-gray-50" />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                       <div className="absolute top-1.5 left-1.5"><StatusBadge status={f.status} /></div>
                       {f.status === "done" && <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#38A169] flex items-center justify-center shadow"><CheckCircle2 size={11} className="text-white" /></div>}
