@@ -779,16 +779,19 @@ export default function Dashboard() {
 
   const renderTimeout = useRef<NodeJS.Timeout | null>(null);
   
-  useCallback(() => {
+  useEffect(() => {
     if (!activeFile || activeFile.detecting || generating) return;
     setIsRenderingPreview(true);
     if (renderTimeout.current) clearTimeout(renderTimeout.current);
     renderTimeout.current = setTimeout(async () => {
-      const url = await drawComposition(activeFile, scale, posX, posY);
+      const currentScale = activeFile.scale ?? scale;
+      const currentX = activeFile.posX ?? posX;
+      const currentY = activeFile.posY ?? posY;
+      const url = await drawComposition(activeFile, currentScale, currentX, currentY);
       if (url) setLivePreviewUrl(url);
       setIsRenderingPreview(false);
-    }, 500);
-  }, [activeFile, scale, posX, posY, generating]);
+    }, 150);
+  }, [activeFile?.id, activeFile?.scale, activeFile?.posX, activeFile?.posY, scale, posX, posY, generating]);
 
   const doneFiles = files.filter((f) => f.status === "done" && !f.exported);
   const pendingTargets = files.filter((f) => !f.detecting && f.status !== "done");
