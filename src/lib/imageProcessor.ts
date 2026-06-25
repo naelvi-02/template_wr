@@ -28,7 +28,13 @@ export function parseFilename(filename: string) {
     if (/^\d{1,2}K[A-Z]*$/i.test(tokens[i])) {
       karat = tokens[i].toUpperCase();
       if (i + 1 < tokens.length) {
-        mp = tokens[i + 1];
+        const remainingStr = tokens.slice(i + 1).join(" ");
+        const numberMatch = remainingStr.match(/\d+/);
+        if (numberMatch) {
+          mp = numberMatch[0];
+        } else {
+          mp = tokens[i + 1];
+        }
       }
       break;
     }
