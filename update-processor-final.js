@@ -1,115 +1,9 @@
-export function parseFilename(filename: string) {
-  const nameWithoutExt = filename.replace(/\.[^/.]+$/, "");
-  const tokens = nameWithoutExt.split(" ");
-  
-  let isDetail = false;
-  if (tokens[tokens.length - 1] === "2") {
-    isDetail = true;
-    tokens.pop();
-  }
-  
-  const baseName = tokens.join(" ");
-  
-  let karat = "16K"; // default fallback
-  let mp = "16"; // default fallback
-  let category = null;
-  
-  if (tokens.length > 0) {
-    const prefix = tokens[0].toUpperCase();
-    if (prefix === "KL") category = "Necklace";
-    else if (prefix === "GL") category = "Bracelet";
-    else if (prefix === "CC") category = "Ring";
-    else if (prefix === "AT" || prefix === "ANT") category = "Earrings";
-    else if (prefix === "LT") category = "Pendant";
-    else if (prefix === "BR") category = "Brooch";
-  }
-  
-  for (let i = 0; i < tokens.length; i++) {
-    if (/^\d{1,2}K[A-Z]*$/i.test(tokens[i])) {
-      karat = tokens[i].toUpperCase();
-      if (i + 1 < tokens.length) {
-        mp = tokens[i + 1];
-      }
-      break;
-    }
-  }
-  
-  return { baseName, karat, mp, category, isDetail };
-}
+const fs = require('fs');
+let code = fs.readFileSync('src/lib/imageProcessor.ts', 'utf-8');
 
-export function getObjectsBoundingBoxes(canvas: HTMLCanvasElement) {
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return [];
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const w = canvas.width, h = canvas.height;
+const prefix = code.substring(0, code.indexOf('export async function loadAndProcessImage'));
 
-  // 1. Column projection with noise filtering
-  const cols = new Array(w).fill(false);
-  const minPixelsPerCol = Math.max(10, Math.floor(h * 0.015)); // e.g., 15px for 1000px height
-  
-  for (let x = 0; x < w; x++) {
-    let solidCount = 0;
-    let hasOpaque = false;
-    for (let y = 0; y < h; y++) {
-      const alpha = data.data[(y * w + x) * 4 + 3];
-      if (alpha > 200) hasOpaque = true;
-      if (alpha > 40) solidCount++;
-    }
-    if (hasOpaque || solidCount > minPixelsPerCol) {
-      cols[x] = true;
-    }
-  }
-
-  // 2. Group columns into segments with a gap threshold
-  const GAP_THRESHOLD = Math.max(20, Math.floor(w * 0.05));
-  const segments: { start: number, end: number }[] = [];
-  let currentStart = -1;
-  let lastFilled = -1;
-
-  for (let x = 0; x < w; x++) {
-    if (cols[x]) {
-      if (currentStart === -1) {
-        currentStart = x;
-      } else if (lastFilled !== -1 && (x - lastFilled) > GAP_THRESHOLD) {
-        segments.push({ start: currentStart, end: lastFilled });
-        currentStart = x;
-      }
-      lastFilled = x;
-    }
-  }
-  if (currentStart !== -1 && lastFilled !== -1) {
-    segments.push({ start: currentStart, end: lastFilled });
-  }
-
-  // 3. Find Y bounds for each segment
-  const boxes = segments.map(seg => {
-    let top = -1, bottom = -1;
-    for (let y = 0; y < h; y++) {
-      let hasPixel = false;
-      for (let x = seg.start; x <= seg.end; x++) {
-        if (data.data[(y * w + x) * 4 + 3] > 10) {
-          hasPixel = true;
-          break;
-        }
-      }
-      if (hasPixel) {
-        if (top === -1) top = y;
-        bottom = y;
-      }
-    }
-    return {
-      x: seg.start,
-      y: top,
-      width: seg.end - seg.start + 1,
-      height: bottom - top + 1,
-      centerX: seg.start + (seg.end - seg.start) / 2
-    };
-  });
-
-  return boxes;
-}
-
-export async function loadAndProcessImage(asBlob: Blob, category: string | null = null): Promise<{ canvas: HTMLCanvasElement, bbox: any, originalWidth: number, originalHeight: number }> {
+const newBody = `export async function loadAndProcessImage(asBlob: Blob, category: string | null = null): Promise<{ canvas: HTMLCanvasElement, bbox: any, originalWidth: number, originalHeight: number }> {
   // 1. DOWNSCALE FOR FAST AI PROCESSING
   const MAX_AI_DIM = 600;
   const originalImg = new Image();
@@ -349,3 +243,7 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
 
   return { canvas, bbox: finalBbox, originalWidth: img.width, originalHeight: img.height };
 }
+`;
+
+fs.writeFileSync('src/lib/imageProcessor.ts', prefix + newBody);
+console.log("Success replacing imageProcessor completely!");
