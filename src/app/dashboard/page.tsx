@@ -5,7 +5,7 @@ import {
   CheckCircle2, RotateCcw, FolderOpen, Cpu, ChevronRight,
   ImageIcon, Clock, AlertCircle, Eye, PackageOpen, Settings,
   User, Lock, Eye as EyeIcon, EyeOff, Save, ShieldCheck, Plus, Archive
-, Sun, Contrast, Droplet, Play, Pause, Square} from "lucide-react";
+, Sun, Contrast, Droplet, Play, Pause, Square, TextCursorInput} from "lucide-react";
 import JSZip from "jszip";
 import { parseFilename, loadAndProcessImage, calculateAutoLighting } from "@/lib/imageProcessor";
 import { Project, getProjects, createProject, deleteProject, saveProjectFiles, getProjectFiles, StoredJewelryFile } from "@/lib/db";
