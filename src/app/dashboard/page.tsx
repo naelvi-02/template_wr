@@ -1031,7 +1031,8 @@ export default function Dashboard() {
         <nav className="flex items-center gap-1">
           <button onClick={() => setActivePage("dashboard")} className="px-4 py-2 rounded-lg text-sm font-medium transition-all" style={{ background: activePage === "dashboard" ? "rgba(229,62,62,0.08)" : "transparent", color: activePage === "dashboard" ? "#E53E3E" : "#8A8A9E" }}>Dashboard</button>
           <button onClick={() => setActivePage("settings")} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all" style={{ background: activePage === "settings" ? "rgba(229,62,62,0.08)" : "transparent", color: activePage === "settings" ? "#E53E3E" : "#8A8A9E" }}><Settings size={14} strokeWidth={2} /> Setting</button>
-        </nav>
+        <a href="https://wr.naelvi.com/rename/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all text-[#8A8A9E] hover:text-[#E53E3E] hover:bg-[rgba(229,62,62,0.08)]"><TextCursorInput size={14} strokeWidth={2} /> Rename</a>
+          </nav>
         <button onClick={() => signOut({ callbackUrl: '/login' })} className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-[#8A8A9E] hover:text-[#E53E3E] hover:bg-[#FFF0F0] transition-all"><LogOut size={15} strokeWidth={2} /><span>Logout</span></button>
       </header>
 
