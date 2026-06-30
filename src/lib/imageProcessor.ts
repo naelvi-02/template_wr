@@ -117,7 +117,31 @@ export function getObjectsBoundingBoxes(canvas: HTMLCanvasElement) {
 
 export async function loadAndProcessImage(asBlob: Blob, category: string | null = null): Promise<{ canvas: HTMLCanvasElement, bbox: any, originalWidth: number, originalHeight: number }> {
   const { removeBackground } = await import("@imgly/background-removal");
-  const bgRemovedBlob = await removeBackground(asBlob, {
+  
+  // 1. Pre-process image for AI (Boost contrast so AI can see white-gold on white-paper better)
+  const origUrl = URL.createObjectURL(asBlob);
+  const origImg = new Image();
+  origImg.crossOrigin = "anonymous";
+  await new Promise((resolve, reject) => {
+    origImg.onload = resolve;
+    origImg.onerror = reject;
+    origImg.src = origUrl;
+  });
+
+  const preCanvas = document.createElement("canvas");
+  preCanvas.width = origImg.width;
+  preCanvas.height = origImg.height;
+  const preCtx = preCanvas.getContext("2d");
+  if (!preCtx) throw new Error("No context");
+  
+  // Darken slightly and boost contrast heavily
+  preCtx.filter = 'contrast(200%) brightness(85%) saturate(150%)';
+  preCtx.drawImage(origImg, 0, 0);
+  
+  const preBlob = await new Promise<Blob>((resolve) => preCanvas.toBlob(b => resolve(b!), 'image/jpeg', 0.9));
+
+  // 2. Run AI on the pre-processed image
+  const bgRemovedBlob = await removeBackground(preBlob, {
     progress: () => {},
     model: "isnet"
   });
@@ -139,8 +163,17 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Could not get context");
 
+  // 1. Apply enhancement filter
   ctx.filter = 'brightness(1.03) contrast(1.05) saturate(1.05)';
+  
+  // 2. Draw ORIGINAL image (so we get original colors)
+  ctx.drawImage(origImg, 0, 0);
+  
+  // 3. Reset filter and apply AI's alpha mask
+  ctx.filter = 'none';
+  ctx.globalCompositeOperation = 'destination-in';
   ctx.drawImage(img, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
 
   // DOWNSCALED CANVAS for fast pixel processing (max 800px)
   const MAX_DIM = 800;
