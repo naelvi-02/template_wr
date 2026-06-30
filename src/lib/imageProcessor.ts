@@ -119,6 +119,7 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
   const { removeBackground } = await import("@imgly/background-removal");
   const bgRemovedBlob = await removeBackground(asBlob, {
     progress: () => {},
+    model: "isnet"
   });
   
   const bgRemovedUrl = URL.createObjectURL(bgRemovedBlob);
