@@ -864,7 +864,7 @@ export default function Dashboard() {
     setProgress(0);
     setProcessedCount(0);
 
-    setFiles((prev) => prev.map((f) => targets.find((t) => t.id === f.id) ? { ...f, status: "queued", resultUrl: null } : f));
+    setFiles((prev) => prev.map((f) => targets.find((t) => t.id === f.id) ? { ...f, status: "queued", resultUrl: null, exported: false } : f));
 
     let doneCount = 0;
     const maxConcurrency = 3;
@@ -905,7 +905,8 @@ export default function Dashboard() {
           ...f, 
           status: success ? "done" : "error", 
           resultUrl: success ? resultUrl : null,
-          resultBlob: success ? resultBlob : undefined
+          resultBlob: success ? resultBlob : undefined,
+          exported: false
         } : f));
         
         doneCount++;
@@ -949,7 +950,7 @@ export default function Dashboard() {
             const blob = await res.blob();
             // Important: only update if it actually changed to avoid infinite loops, but blob URLs are always new.
             // So we just update files state. Since we don't depend on activeFile.resultUrl, it's safe.
-            setFiles(prev => prev.map(f => f.id === activeFile.id ? { ...f, resultUrl: url, resultBlob: blob } : f));
+            setFiles(prev => prev.map(f => f.id === activeFile.id ? { ...f, resultUrl: url, resultBlob: blob, exported: false } : f));
             setLivePreviewUrl(url);
           } catch(e) {}
         }
