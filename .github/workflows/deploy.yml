@@ -21,6 +21,7 @@ jobs:
         host: ${{ secrets.VPS_HOST }}
         username: ${{ secrets.VPS_USERNAME }}
         password: ${{ secrets.VPS_PASSWORD }}
+        key: ${{ secrets.VPS_KEY }}
         port: ${{ secrets.VPS_PORT }}
         envs: ADMIN_USERNAME,ADMIN_PASSWORD
         script: |
