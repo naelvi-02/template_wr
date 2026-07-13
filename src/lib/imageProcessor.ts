@@ -1,9 +1,10 @@
 export function parseFilename(filename: string) {
-  const nameWithoutExt = filename.replace(/\.[^/.]+$/, "");
-  const tokens = nameWithoutExt.split(" ");
+  const nameWithoutExt = filename.replace(/\.[^/.]+$/, "").trim();
+  const tokens = nameWithoutExt.split(/\s+/);
   
   let isDetail = false;
-  if (tokens[tokens.length - 1] === "2") {
+  const lastToken = tokens[tokens.length - 1]?.toUpperCase();
+  if (lastToken === "2" || lastToken === "KAIT") {
     isDetail = true;
     tokens.pop();
   }
