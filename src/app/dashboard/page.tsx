@@ -1038,7 +1038,7 @@ export default function Dashboard() {
       }
       alert(`Berhasil menyimpan ${successCount} foto dan menimpa file asli!`);
       setFiles(prev => prev.map(f => doneFiles.some(d => d.id === f.id) ? { ...f, exported: true } : f));
-    } catch (err) {
+    } catch (err: any) {
       if (err.name !== 'AbortError') {
         console.error(err);
         alert("Gagal mengakses folder. Pastikan memberikan izin 'Allow'.");
