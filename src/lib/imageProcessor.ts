@@ -1,14 +1,19 @@
 export function parseFilename(filename: string) {
-  const nameWithoutExt = filename.replace(/\.[^/.]+$/, "").trim();
-  const tokens = nameWithoutExt.split(/\s+/);
-  
   let isDetail = false;
-  const lastToken = tokens[tokens.length - 1]?.toUpperCase();
-  if (lastToken === "2" || lastToken === "KAIT") {
+  let nameWithoutExt = filename.replace(/\.[^/.]+$/, "").trim();
+  
+  // Strip trailing punctuation/spaces
+  nameWithoutExt = nameWithoutExt.replace(/[\s\-_.,]+$/, "");
+  
+  if (/(?:\s|_|\-|)KAIT$/i.test(nameWithoutExt)) {
     isDetail = true;
-    tokens.pop();
+    nameWithoutExt = nameWithoutExt.replace(/(?:\s|_|\-|)KAIT$/i, "");
+  } else if (/(?:\s|_|\-)2$/i.test(nameWithoutExt)) {
+    isDetail = true;
+    nameWithoutExt = nameWithoutExt.replace(/(?:\s|_|\-)2$/i, "");
   }
   
+  const tokens = nameWithoutExt.split(/\s+/);
   const baseName = tokens.join(" ");
   
   let karat = "16K"; // default fallback
