@@ -46,7 +46,9 @@ export function parseFilename(filename: string) {
     }
   }
   
-  return { baseName, karat, mp, category, isDetail };
+  const groupId = baseName.replace(/\s+/g, "").toUpperCase();
+  
+  return { baseName, karat, mp, category, isDetail, groupId };
 }
 
 export function getObjectsBoundingBoxes(canvas: HTMLCanvasElement) {

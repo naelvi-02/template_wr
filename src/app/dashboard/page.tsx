@@ -411,28 +411,28 @@ export default function Dashboard() {
     const imageFiles = Array.from(rawFiles).filter((f) => f.type.startsWith("image/"));
     if (!imageFiles.length) return;
 
-    const fileMap = new Map<string, { main?: File, detail?: File }>();
+    const fileMap = new Map<string, { main?: File, detail?: File, baseName?: string }>();
     
     imageFiles.forEach(f => {
       const parsed = parseFilename(f.name);
-      if (!fileMap.has(parsed.baseName)) {
-        fileMap.set(parsed.baseName, {});
+      if (!fileMap.has(parsed.groupId)) {
+        fileMap.set(parsed.groupId, { baseName: parsed.baseName });
       }
       if (parsed.isDetail) {
-        fileMap.get(parsed.baseName)!.detail = f;
+        fileMap.get(parsed.groupId)!.detail = f;
       } else {
-        fileMap.get(parsed.baseName)!.main = f;
+        fileMap.get(parsed.groupId)!.main = f;
       }
     });
 
     const newEntries: JewelryFile[] = [];
-    fileMap.forEach((data, baseName) => {
+    fileMap.forEach((data, groupId) => {
       // Must have at least a main file to proceed
       if (data.main) {
         const parsed = parseFilename(data.main.name);
         newEntries.push({
-          id: `${baseName}-${Date.now()}-${Math.random()}`,
-          baseName,
+          id: `${data.baseName}-${Date.now()}-${Math.random()}`,
+          baseName: data.baseName || parsed.baseName,
           name: data.main.name,
           karat: parsed.karat,
           mp: parsed.mp,
