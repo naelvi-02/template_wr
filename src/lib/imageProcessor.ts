@@ -2,8 +2,8 @@ export function parseFilename(filename: string) {
   let isDetail = false;
   let nameWithoutExt = filename.replace(/\.[^/.]+$/, "").trim();
   
-  // Strip trailing punctuation/spaces
-  nameWithoutExt = nameWithoutExt.replace(/[\s\-_.,]+$/, "");
+  // Strip ALL trailing non-alphanumeric characters (like zero-width spaces, weird punctuation)
+  nameWithoutExt = nameWithoutExt.replace(/[^a-zA-Z0-9)]+$/, "");
   
   if (/(?:\s|_|\-|)KAIT$/i.test(nameWithoutExt)) {
     isDetail = true;
