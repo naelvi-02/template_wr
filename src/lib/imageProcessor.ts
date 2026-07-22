@@ -12,7 +12,7 @@ export function parseFilename(filename: string) {
   const baseName = tokens.join(" ");
   
   let karat = "16K"; // default fallback
-  let mp = "16"; // default fallback
+  let mp = "MP 16"; // default fallback
   let category = null;
   
   if (tokens.length > 0) {
@@ -34,11 +34,12 @@ export function parseFilename(filename: string) {
       karat = tokens[i].toUpperCase();
       if (i + 1 < tokens.length) {
         const remainingStr = tokens.slice(i + 1).join(" ");
-        const numberMatch = remainingStr.match(/\d+/);
-        if (numberMatch) {
-          mp = numberMatch[0];
+        const match = remainingStr.match(/([A-Za-z]*)\s*(\d+)/);
+        if (match) {
+          const prefix = match[1] ? match[1].toUpperCase() : "MP";
+          mp = `${prefix} ${match[2]}`;
         } else {
-          mp = tokens[i + 1];
+          mp = `MP ${tokens[i + 1]}`;
         }
       }
       break;
