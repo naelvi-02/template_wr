@@ -801,7 +801,7 @@ export default function Dashboard() {
       ctx.fillStyle = "#ec1e24";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(`MP ${target.mp}`, 90, 1155); 
+      ctx.fillText(target.mp, 90, 1155); 
 
       // Karat text inside existing circle
       const karatCx = 740; 
@@ -967,7 +967,7 @@ export default function Dashboard() {
     scale, posX, posY, globalAutoAdjust, globalBrightness, globalContrast, globalSaturate
   ]);
 
-  const doneFiles = files.filter((f) => f.status === "done" && !f.exported);
+  const doneFiles = files.filter((f) => f.status === "done");
   const pendingTargets = files.filter((f) => !f.detecting && f.status !== "done");
   const allReady = pendingTargets.length > 0 && files.every((f) => !f.detecting);
 
