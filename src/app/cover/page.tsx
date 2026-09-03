@@ -103,9 +103,79 @@ export default function CoverPage(){
   useEffect(()=>{ try{ preloadBgModel(); }catch{} },[]);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const processCache = useRef(new Map<string, { mainCropped: HTMLCanvasElement; mainBbox: any; lighting?: {brightness:number;contrast:number;saturate:number} }>());
+  const rantaiCentersCache = useRef(new Map<string, { x: number; y: number }[]>());
   const renderTimeout = useRef<NodeJS.Timeout|null>(null);
   const stopSignal = useRef(false);
   const pauseSignal = useRef(false);
+
+  const compressImageForAI = useCallback((file: File): Promise<string> => new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_DIM = 512;
+        let { width, height } = img;
+        if (width > height && width > MAX_DIM) { height *= MAX_DIM / width; width = MAX_DIM; }
+        else if (height > MAX_DIM) { width *= MAX_DIM / height; height = MAX_DIM; }
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.onerror = reject;
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  }), []);
+
+  const getRantaiJewelryCenters = useCallback(async (file: File, rTot: number): Promise<{ x: number; y: number }[]> => {
+    const key = `${file.name}_${file.size}_${rTot}`;
+    if (rantaiCentersCache.current.has(key)) {
+      return rantaiCentersCache.current.get(key)!;
+    }
+    try {
+      const base64 = await compressImageForAI(file);
+      const prompt = `Foto perhiasan ini memuat ${rTot} gelang di atas display roll / tray. Deteksi titik tengah (center x, y) tiap perhiasan berurutan dari nomor 1 sampai ${rTot} (urut sesuai susunan display / dari kiri/atas ke kanan/bawah). Kembalikan HANYA JSON array: [{"index":0,"x":0.25,"y":0.35},...]. Nilai x dan y berupa angka desimal normalisasi 0.0 sampai 1.0.`;
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          imageBase64: base64,
+          visionUrl: "https://9router.naelvi.com/v1",
+          visionKey: "sk-9router-naelvi-master",
+          visionModel: "ag/gemini-3.7-flash-medium"
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const txt = data.message || "";
+        const jsonMatch = txt.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed) && parsed.length >= rTot) {
+            const centers = parsed.slice(0, rTot).map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
+            rantaiCentersCache.current.set(key, centers);
+            return centers;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("AI center detection fallback:", e);
+    }
+    const fallbackCenters: { x: number; y: number }[] = [];
+    for (let i = 0; i < rTot; i++) {
+      const t = (i + 0.5) / rTot;
+      fallbackCenters.push({
+        x: 0.22 + t * 0.56,
+        y: 0.28 + t * 0.44
+      });
+    }
+    rantaiCentersCache.current.set(key, fallbackCenters);
+    return fallbackCenters;
+  }, [compressImageForAI]);
 
   const activeFile = files.find(f=>f.id===activeId) ?? null;
 
@@ -273,27 +343,7 @@ export default function CoverPage(){
       if(!activeId && next.length>0) setActiveId(next[0].id);
       return next;
     });
-    const compressImageForAI=(file:File):Promise<string>=> new Promise((resolve,reject)=>{
-      const img=new Image();
-      const reader=new FileReader();
-      reader.onload=(e)=>{
-        img.onload=()=>{
-          const canvas=document.createElement("canvas");
-          const MAX_DIM=512;
-          let {width,height}=img;
-          if(width>height && width>MAX_DIM){ height*=MAX_DIM/width; width=MAX_DIM; }
-          else if(height>MAX_DIM){ width*=MAX_DIM/height; height=MAX_DIM; }
-          canvas.width=width; canvas.height=height;
-          const ctx=canvas.getContext("2d");
-          if(ctx) ctx.drawImage(img,0,0,width,height);
-          resolve(canvas.toDataURL("image/jpeg",0.7));
-        };
-        img.onerror=reject;
-        img.src=e.target?.result as string;
-      };
-      reader.onerror=reject;
-      reader.readAsDataURL(file);
-    });
+
 
   const processQueue=async()=>{
         const hw = (typeof navigator !== "undefined" && (navigator as any).hardwareConcurrency) || 4;
@@ -369,7 +419,8 @@ export default function CoverPage(){
         mainBbox=cached.mainBbox;
       } else {
         const isRantaiTarget = isRantaiFolder(target.folderName||"") ||
-          kategoriKinds.get(target.folderName||"")?.kind==="single";
+          kategoriKinds.get(target.folderName||"")?.kind==="single" ||
+          (target as any).rantaiIndex !== undefined;
         const keepTray = isRantaiTarget;
         let effCategory = target.category;
         if(isRantaiTarget){
@@ -397,17 +448,7 @@ export default function CoverPage(){
       const currentScale=(overrideScale!==undefined?overrideScale:100)/100;
       const currentX=overrideX!==undefined?overrideX:0;
       const currentY=overrideY!==undefined?overrideY:0;
-      const isNecklace=target.category==="Necklace";
-      const isRantaiLike = (kategoriKinds.get(target.folderName||"")?.kind==="single") || isRantaiFolder(target.folderName||"");
-      const safeW=logicalW*(isNecklace?0.85:(isRantaiLike?0.88:0.7));
-      const safeH=logicalH*(isNecklace?0.85:(isRantaiLike?0.78:0.7));
-      const zoomBoost = isRantaiLike ? 1.35 : 1.0;
-      const scaleFactor=Math.min(safeW/mainBbox.width, safeH/mainBbox.height)*currentScale*zoomBoost;
-      const drawW=mainBbox.width*scaleFactor;
-      const drawH=mainBbox.height*scaleFactor;
-      const cx=(logicalW/2)-(drawW/2)+currentX;
-      let cy=(logicalH/2)-(drawH/2)+currentY;
-      if(isNecklace) cy=0+currentY;
+
       let filterStr="none";
       try{
         let autoLighting:{brightness:number;contrast:number;saturate:number};
@@ -425,60 +466,81 @@ export default function CoverPage(){
         const finalS=Math.max(0,autoLighting.saturate+(manualS-100))/100;
         filterStr=`brightness(${finalB}) contrast(${finalC}) saturate(${finalS})`;
       }catch(e){}
+
       const rIdx=(target as any).rantaiIndex;
       const rTot=(target as any).rantaiTotal;
+      const isRantaiMulti = rIdx!==undefined && rTot && rTot > 1 && rIdx>=0;
 
-      if(rIdx!==undefined && rTot && rTot > 1 && rIdx>=0){
-        // High-Contrast Bokeh Focus Effect:
-        // Other items are strongly blurred (32px) + softly dimmed, while active item is 100% sharp & vibrant!
+      let drawW:number;
+      let drawH:number;
+      let cx:number;
+      let cy:number;
+
+      if(isRantaiMulti){
+        // Macro Close-Up Mode matching user reference image:
+        // 1. Fetch exact center coordinates of active jewelry
+        const centers = await getRantaiJewelryCenters(target.file, rTot);
+        const center = centers[rIdx] || { x: (rIdx + 0.5) / rTot, y: 0.5 };
+
+        // 2. Macro zoom scale: fill template canvas with the roll (~2.15x macro zoom)
+        const baseFit = Math.max(logicalW / mainCropped.width, logicalH / mainCropped.height);
+        const macroScale = baseFit * 2.15 * currentScale;
+        drawW = mainCropped.width * macroScale;
+        drawH = mainCropped.height * macroScale;
+
+        // 3. Pan canvas so active jewelry center is positioned EXACTLY at template center!
+        cx = (logicalW / 2) - (center.x * drawW) + currentX;
+        cy = (logicalH / 2) - (center.y * drawH) + currentY;
+
+        // 4. Create blurred version of entire image
         const blurCanvas = document.createElement("canvas");
         blurCanvas.width = mainCropped.width;
         blurCanvas.height = mainCropped.height;
         const bCtx = blurCanvas.getContext("2d")!;
-        bCtx.filter = "blur(32px)";
+        bCtx.filter = "blur(26px)";
         bCtx.drawImage(mainCropped, 0, 0);
 
-        // 1. Draw blurred image over entire jewelry area with soft background dimming
+        // 5. Draw blurred tray image over the canvas
         ctx.save();
         ctx.filter = filterStr;
-        ctx.shadowColor = "rgba(0,0,0,0.1)";
-        ctx.shadowBlur = isPreview ? 0 : 12;
-        ctx.shadowOffsetY = 10;
         ctx.drawImage(blurCanvas, cx, cy, drawW, drawH);
-        ctx.fillStyle = "rgba(255,255,255,0.18)";
-        ctx.fillRect(cx, cy, drawW, drawH);
         ctx.restore();
 
-        // 2. Reveal the active jewelry item in 100% sharp crisp focus
-        const segW = drawW / rTot;
-        const padLeft = rIdx === 0 ? 0 : segW * 0.12;
-        const padRight = rIdx === rTot - 1 ? 0 : segW * 0.12;
-        const activeX = cx + (rIdx * segW) - padLeft;
-        const activeW = segW + padLeft + padRight;
+        // 6. Reveal active jewelry in 100% sharp focus right in the center!
+        const focusCenterX = logicalW / 2 + currentX;
+        const focusStripW = Math.max(logicalW * 0.30, (drawW / rTot) * 0.90);
+        const clipX = focusCenterX - (focusStripW / 2);
 
         ctx.save();
         ctx.beginPath();
-        const clipX = Math.max(cx, activeX);
-        const clipW = Math.min(cx + drawW - clipX, activeW);
-        const clipY = cy - 20;
-        const clipH = drawH + 40;
         if (typeof (ctx as any).roundRect === "function") {
-          (ctx as any).roundRect(clipX, clipY, clipW, clipH, 16);
+          (ctx as any).roundRect(clipX, 0, focusStripW, logicalH, 20);
         } else {
-          ctx.rect(clipX, clipY, clipW, clipH);
+          ctx.rect(clipX, 0, focusStripW, logicalH);
         }
         ctx.clip();
-        ctx.filter = filterStr === "none" ? "brightness(1.05) contrast(1.08)" : `${filterStr} brightness(1.03) contrast(1.05)`;
+        ctx.filter = filterStr === "none" ? "brightness(1.04) contrast(1.05)" : `${filterStr} brightness(1.02) contrast(1.03)`;
         ctx.drawImage(mainCropped, cx, cy, drawW, drawH);
         ctx.restore();
       } else {
-        // Normal single jewelry: draw sharp original image
+        const isNecklace=target.category==="Necklace";
+        const isRantaiLike = (kategoriKinds.get(target.folderName||"")?.kind==="single") || isRantaiFolder(target.folderName||"");
+        const safeW=logicalW*(isNecklace?0.85:(isRantaiLike?0.88:0.7));
+        const safeH=logicalH*(isNecklace?0.85:(isRantaiLike?0.78:0.7));
+        const zoomBoost = isRantaiLike ? 1.35 : 1.0;
+        const scaleFactor=Math.min(safeW/mainBbox.width, safeH/mainBbox.height)*currentScale*zoomBoost;
+        drawW=mainBbox.width*scaleFactor;
+        drawH=mainBbox.height*scaleFactor;
+        cx=(logicalW/2)-(drawW/2)+currentX;
+        cy=(logicalH/2)-(drawH/2)+currentY;
+        if(isNecklace) cy=0+currentY;
+
         ctx.save();
-        ctx.filter = filterStr;
-        ctx.shadowColor = "rgba(0,0,0,0.1)";
-        ctx.shadowBlur = isPreview ? 0 : 12;
-        ctx.shadowOffsetY = 10;
-        ctx.drawImage(mainCropped, cx, cy, drawW, drawH);
+        ctx.filter=filterStr;
+        ctx.shadowColor="rgba(0,0,0,0.1)";
+        ctx.shadowBlur=isPreview?0:12;
+        ctx.shadowOffsetY=10;
+        ctx.drawImage(mainCropped,cx,cy,drawW,drawH);
         ctx.restore();
       }
 

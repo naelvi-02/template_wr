@@ -140,17 +140,15 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
   // For GELANG RANTAI / KALUNG RANTAI: keep tray/display -> skip AI background removal, just bbox crop via color threshold
   if (keepTray) {
     const box = getFastBoundingBox(origImg);
-    // add small padding around tray so not clipped
-    // RantaiFix: clamp to keep tray visible, tighter bbox
-    const pad = Math.floor(Math.min(box.width, box.height) * 0.06);
-    const x = Math.max(0, box.x - pad);
-    const y = Math.max(0, box.y - pad);
-    const w = Math.min(origImg.width - x, box.width + pad*2);
-    const h = Math.min(origImg.height - y, box.height + pad*2);
+    const padX = Math.floor(origImg.width * 0.05);
+    const padY = Math.floor(origImg.height * 0.05);
+    const x = Math.max(0, Math.min(box.x - padX, Math.floor(origImg.width * 0.05)));
+    const y = Math.max(0, Math.min(box.y - padY, Math.floor(origImg.height * 0.05)));
+    const w = Math.min(origImg.width - x, Math.max(box.width + padX * 2, Math.floor(origImg.width * 0.9)));
+    const h = Math.min(origImg.height - y, Math.max(box.height + padY * 2, Math.floor(origImg.height * 0.9)));
     const finalCanvas = document.createElement("canvas");
     finalCanvas.width = w; finalCanvas.height = h;
     const fCtx = finalCanvas.getContext("2d")!;
-    // high quality scaling
     fCtx.imageSmoothingEnabled = true;
     // @ts-ignore
     if (fCtx.imageSmoothingQuality) fCtx.imageSmoothingQuality = "high";
