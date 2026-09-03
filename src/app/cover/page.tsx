@@ -109,16 +109,18 @@ export default function CoverPage(){
 
     const folderToCatKind = (folder:string): {cat:string;kind:string}|null => {
     const up=(folder||"").toUpperCase();
-    if(up.includes("RANTAI")) return {cat: up.includes("KALUNG")?"Necklace":"Bracelet", kind:"single"};
-    if(up.includes("BANGLE")||up.includes("BELAH")||up.includes("EXTENSION")) return {cat:"Bracelet", kind:"grid4"};
-    if(up.includes("CINCIN")||up.includes("RING")) return {cat:"Ring", kind:"grid6"};
-    if(up.includes("ANTING TUSUK")||up.includes("TUSUK")) return {cat:"Earrings", kind:"grid6"};
-    if(up.includes("ANTING GANTUNG")||up.includes("GANTUNG")) return {cat:"Earrings", kind:"grid6"};
-    if(up.includes("ANTING")) return {cat:"Earrings", kind:"grid6"};
+    // Only unambiguous names bypass vision. GELANG extensions (BELAH/EXTENSION/RANTAI generik) MUST go via vision.
+    // GELANG RANTAI explisit -> single. GELANG BANGLE eksplisit -> grid4.
+    if(up.includes("GELANG RANTAI")) return {cat: up.includes("KALUNG")?"Necklace":"Bracelet", kind:"single"};
+    if(up.includes("KALUNG RANTAI")) return {cat:"Necklace", kind:"single"};
+    if(up.includes("GELANG BANGLE")) return {cat:"Bracelet", kind:"grid4"};
+    if(up.includes("CINCIN")||(up.includes("RING")&&!up.includes("RANTAI"))) return {cat:"Ring", kind:"grid6"};
+    if(up.includes("ANTING TUSUK")) return {cat:"Earrings", kind:"grid6"};
+    if(up.includes("ANTING GANTUNG")) return {cat:"Earrings", kind:"grid6"};
     if(up.includes("LIONTIN")||up.includes("PENDANT")) return {cat:"Pendant", kind:"grid6"};
-    if(up.includes("KALUNG")) return {cat:"Necklace", kind:"single"};
-    if(up.includes("GELANG")) return {cat:"Bracelet", kind:"grid4"};
+    if(up.includes("KALUNG RANTAI")||up.includes("KALUNG BELAH")||up.includes("KALUNG EXTENSION")) return null; // vision decides
     if(up.includes("BROS")||up.includes("BROOCH")) return {cat:"Brooch", kind:"grid6"};
+    // GELANG EXTENSION / BELAH TENGAH / generic GELANG -> return null so vision decides Bracelet single vs grid4
     return null;
   };
   const handleOpenMainFolder = async ()=>{
@@ -291,7 +293,7 @@ export default function CoverPage(){
             const mapped = folderToCatKind(entry.folderName||"");
             if(mapped){ category = mapped.cat; } else if(!category){
               const base64=await compressImageForAI(entry.file);
-              const prompt="LIHAT REFERENSI: ANTING GANTUNG/TUSUK=anting, CINCIN=cincin bulat kecil, GELANG BANGLE=gelang kaku tebal, GELANG RANTAI=rantai banyak sambung memanjang di tray, LIONTIN=liontin. Klasifikasi KE SATU KATA: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. Jika BANYAK GELANG BERJEJER MEMANJANG=Bracelet rantai. Jawab HANYA satu kata.";
+              const prompt="LIHAT REFERENSI: ANTING GANTUNG/TUSUK=anting, CINCIN=cincin bulat kecil, GELANG BANGLE=gelang kaku tebal, GELANG RANTAI=rantai banyak sambung memanjang di tray, LIONTIN=liontin. Klasifikasi KE SATU KATA: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. GELANG EXTENSION / BELAH TENGAH yang fotonya berisi 3-5 gelang memanjang berjejer di tray adalah GELANG RANTAI = Bracelet (BUKAN grid4). Jika BANYAK GELANG BERJEJER MEMANJANG=Bracelet rantai. Jawab HANYA satu kata.";
               const response=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt, imageBase64:base64, visionUrl:"https://9router.naelvi.com/v1", visionKey:"sk-9router-naelvi-master", visionModel:"ag/gemini-3.7-flash-medium"})});
               category="Ring";
               if(response.ok){
@@ -336,7 +338,8 @@ export default function CoverPage(){
         mainCropped=cached.mainCropped;
         mainBbox=cached.mainBbox;
       } else {
-        const keepTray = isRantaiFolder(target.folderName||"");
+        const isRantaiTarget = isRantaiFolder(target.folderName||"") || kategoriKinds.get(target.folderName||"")?.kind==="single";
+        const keepTray = isRantaiTarget;
         let effCategory = target.category;
         if(isRantaiFolder(target.folderName||"")){
           const up=(target.folderName||"").toUpperCase();
@@ -511,17 +514,16 @@ export default function CoverPage(){
     const baseTargets=files.filter(f=>!f.detecting && f.status!=="done");
     let targets=[];
     for(const f of baseTargets){
-      if(isRantaiFolder(f.folderName||"")){
+      const isRantai = isRantaiFolder(f.folderName||"") || (kategoriKinds.get(f.folderName||"")?.kind==="single") || (f.category==="Bracelet" && (etalaseDetails.get(f.folderName||"")?.items.size||0)>1 && (f.folderName||"").toUpperCase().includes("GELANG"));
+      if(isRantai){
         const det = etalaseDetails.get(f.folderName||"");
         let n = det?.items.size || 0;
         if(!n){
-          // txtNFallback: try parse txt via folder grouping fallback - look at etalaseDetails keys
           const txtNFallback = Array.from(etalaseDetails.values()).reduce((a,v)=> Math.max(a, v.items.size), 0);
           if(txtNFallback>1) n=txtNFallback;
         }
-        if(!n) n=5; // for gelang rantai typical 5 per foto if txt missing
-        // log
-        if(isRantaiFolder(f.folderName||"")) console.log("[rantai expand]", f.folderName, "det=", det?.items.size, "n=",n);
+        if(!n) n=5;
+        console.log("[rantai expand]", f.folderName, "cat=", f.category, "kind=", kategoriKinds.get(f.folderName||"")?.kind, "det=", det?.items.size, "n=",n);
         if(n<=1) targets.push(f);
         else { for(let i=0;i<n;i++) targets.push({...f, id: f.id+"-rantai-"+i, rantaiIndex:i, rantaiTotal:n, baseName: f.baseName+" "+(i+1)+"/"+n, _rantaiBaseId: f.id} as any); }
       } else targets.push(f);
