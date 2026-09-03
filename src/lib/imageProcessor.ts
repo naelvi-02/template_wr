@@ -264,11 +264,26 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
   const validIds = new Set<number>();
   if (components.length > 0) {
     const maxArea = Math.max(...components.map(c => c.area));
-    components.forEach(c => {
-      const isAtBottom = c.minY > h * 0.65;
-      if (isAtBottom && c.area < maxArea * 0.4) return;
-      if (c.area >= maxArea * 0.08) validIds.add(c.id);
-    });
+    if (category === "Ring") {
+      // Only keep the single component closest to center (w/2, h*0.45), discard secondary rings/reflections
+      let bestComp = components[0];
+      let minDist = Infinity;
+      const targetX = w / 2, targetY = h * 0.45;
+      for (const c of components) {
+        if (c.area < maxArea * 0.15) continue;
+        const cx = (c.minX + c.maxX) / 2;
+        const cy = (c.minY + c.maxY) / 2;
+        const dist = Math.hypot(cx - targetX, cy - targetY);
+        if (dist < minDist) { minDist = dist; bestComp = c; }
+      }
+      validIds.add(bestComp.id);
+    } else {
+      components.forEach(c => {
+        const isAtBottom = c.minY > h * 0.65;
+        if (isAtBottom && c.area < maxArea * 0.4) return;
+        if (c.area >= maxArea * 0.08) validIds.add(c.id);
+      });
+    }
     for (let i = 0; i < w * h; i++) { const id = compIdMap[i]; if (id > 0 && !validIds.has(id)) data[i * 4 + 3] = 0; }
   }
   lowCtx.putImageData(imgData, 0, 0);
@@ -284,7 +299,25 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
   const boxes = getObjectsBoundingBoxes(lowCanvas).map(b => ({ x: b.x / scale, y: b.y / scale, width: b.width / scale, height: b.height / scale, centerX: b.centerX / scale }));
   let finalBbox = { x: 0, y: 0, width: canvas.width, height: canvas.height };
   let duplicateMode = false;
-  if (boxes.length > 0) {
+  if (category === "Ring" && components.length > 0) {
+    const targetX = w / 2, targetY = h * 0.45;
+    let bestComp = components[0];
+    let minDist = Infinity;
+    const maxArea = Math.max(...components.map(c => c.area));
+    for (const c of components) {
+      if (c.area < maxArea * 0.15) continue;
+      const cx = (c.minX + c.maxX) / 2;
+      const cy = (c.minY + c.maxY) / 2;
+      const dist = Math.hypot(cx - targetX, cy - targetY);
+      if (dist < minDist) { minDist = dist; bestComp = c; }
+    }
+    const pad = Math.floor(Math.min(bestComp.maxX - bestComp.minX, bestComp.maxY - bestComp.minY) * 0.06);
+    const bx = Math.max(0, bestComp.minX - pad) / scale;
+    const by = Math.max(0, bestComp.minY - pad) / scale;
+    const bw = Math.min(canvas.width - bx, (bestComp.maxX - bestComp.minX + pad * 2) / scale);
+    const bh = Math.min(canvas.height - by, (bestComp.maxY - bestComp.minY + pad * 2) / scale);
+    finalBbox = { x: bx, y: by, width: bw, height: bh };
+  } else if (boxes.length > 0) {
     const imgCenterX = canvas.width / 2;
     if (category === "Earrings") {
       let bestBox = boxes[0]; let minDiff = Math.abs(boxes[0].centerX - imgCenterX);

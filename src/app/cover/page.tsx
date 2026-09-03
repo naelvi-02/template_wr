@@ -425,29 +425,58 @@ export default function CoverPage(){
         const finalS=Math.max(0,autoLighting.saturate+(manualS-100))/100;
         filterStr=`brightness(${finalB}) contrast(${finalC}) saturate(${finalS})`;
       }catch(e){}
-      ctx.save();
-      ctx.filter=filterStr;
-      ctx.shadowColor="rgba(0,0,0,0.1)";
-      ctx.shadowBlur=isPreview?0:12;
-      ctx.shadowOffsetY=10;
-      ctx.drawImage(mainCropped,cx,cy,drawW,drawH);
-      ctx.restore();
-      // RANTAI highlight: highlight 1 perhiasan (kiri->kanan)
       const rIdx=(target as any).rantaiIndex;
       const rTot=(target as any).rantaiTotal;
-      if(rIdx!==undefined && rTot && rIdx>=0){
-        try{
-          const zoneW = drawW / rTot;
-          for(let zi=0; zi<rTot; zi++){
-            if(zi===rIdx) continue;
-            const zx = cx + zi*zoneW;
-            ctx.fillStyle="rgba(255,255,255,0.52)";
-            ctx.fillRect(zx, cy, zoneW, drawH);
-          }
-          ctx.strokeStyle="#E53E3E";
-          ctx.lineWidth=4;
-          ctx.strokeRect(cx + rIdx*zoneW, cy, zoneW, drawH);
-        }catch{}
+
+      if(rIdx!==undefined && rTot && rTot > 1 && rIdx>=0){
+        // Bokeh Focus Effect: All other jewelry items blurred, only the active item is sharp in focus!
+        const blurCanvas = document.createElement("canvas");
+        blurCanvas.width = mainCropped.width;
+        blurCanvas.height = mainCropped.height;
+        const bCtx = blurCanvas.getContext("2d")!;
+        bCtx.filter = "blur(18px)";
+        bCtx.drawImage(mainCropped, 0, 0);
+
+        // 1. Draw blurred image over entire jewelry area
+        ctx.save();
+        ctx.filter = filterStr;
+        ctx.shadowColor = "rgba(0,0,0,0.1)";
+        ctx.shadowBlur = isPreview ? 0 : 12;
+        ctx.shadowOffsetY = 10;
+        ctx.drawImage(blurCanvas, cx, cy, drawW, drawH);
+        ctx.restore();
+
+        // 2. Reveal the active jewelry item in 100% sharp crisp focus
+        const segW = drawW / rTot;
+        const padLeft = rIdx === 0 ? 0 : segW * 0.12;
+        const padRight = rIdx === rTot - 1 ? 0 : segW * 0.12;
+        const activeX = cx + (rIdx * segW) - padLeft;
+        const activeW = segW + padLeft + padRight;
+
+        ctx.save();
+        ctx.beginPath();
+        const clipX = Math.max(cx, activeX);
+        const clipW = Math.min(cx + drawW - clipX, activeW);
+        const clipY = cy - 10;
+        const clipH = drawH + 20;
+        if (typeof (ctx as any).roundRect === "function") {
+          (ctx as any).roundRect(clipX, clipY, clipW, clipH, 16);
+        } else {
+          ctx.rect(clipX, clipY, clipW, clipH);
+        }
+        ctx.clip();
+        ctx.filter = filterStr;
+        ctx.drawImage(mainCropped, cx, cy, drawW, drawH);
+        ctx.restore();
+      } else {
+        // Normal single jewelry: draw sharp original image
+        ctx.save();
+        ctx.filter = filterStr;
+        ctx.shadowColor = "rgba(0,0,0,0.1)";
+        ctx.shadowBlur = isPreview ? 0 : 12;
+        ctx.shadowOffsetY = 10;
+        ctx.drawImage(mainCropped, cx, cy, drawW, drawH);
+        ctx.restore();
       }
 
       // Folder-level kadar/nampan from txt (always override if folder has txt), item-level berat/size via txtItem match
@@ -549,27 +578,32 @@ export default function CoverPage(){
 
   const isRantaiFolder = (f: string)=>{
     const up=(f||"").toUpperCase();
-    return up.includes("RANTAI") || up.includes("EXTENSION") || up.includes("BELAH");
+    return up.includes("RANTAI") || up.includes("EXTENSION");
   };
   const handleGenerate = async ()=>{
     if(generateState==="paused"){ pauseSignal.current=false; setGenerateState("generating"); return; }
-    // 1 foto -> N varian jika rantai / extension / belah atau items txt > 1
+    // 1 foto -> N varian HANYA jika jumlah foto dalam folder lebih sedikit dari jumlah item txt (misal 1 foto isi 4 gelang)
     let currentFiles = [...files];
     let hasExpanded = false;
     const expandedList: JewelryFile[] = [];
 
     for(const f of currentFiles){
-      const isRantai = isRantaiFolder(f.folderName||"") ||
-        (kategoriKinds.get(f.folderName||"")?.kind==="single") ||
-        (f.category==="Bracelet" && (etalaseDetails.get(f.folderName||"")?.items.size||0)>1);
-      
+      const folderPhotos = currentFiles.filter(cf => (cf.folderName || "") === (f.folderName || "") && !cf.id.includes("-rantai-"));
       const det = etalaseDetails.get(f.folderName||"");
       let n = det?.items.size || 0;
-      if(!n && isRantai){
+      if(!n && isRantaiFolder(f.folderName||"")){
         const txtNFallback = Array.from(etalaseDetails.values()).reduce((a,v)=> Math.max(a, v.items.size), 0);
         if(txtNFallback>1) n=txtNFallback;
       }
-      if(isRantai && n>1 && !f.id.includes("-rantai-")){
+
+      // Syarat multi-item: foto dalam folder < jumlah item di txt (contoh: 1 foto tapi txt ada 4 item)
+      const isMultiItem = n > 1 && folderPhotos.length < n && (
+        isRantaiFolder(f.folderName||"") ||
+        (kategoriKinds.get(f.folderName||"")?.kind==="single") ||
+        (f.category==="Bracelet" && folderPhotos.length === 1)
+      );
+
+      if(isMultiItem && !f.id.includes("-rantai-")){
         hasExpanded = true;
         const ext = f.name.includes(".") ? f.name.slice(f.name.lastIndexOf(".")) : ".jpg";
         const rawBase = f.name.replace(/\.[^/.]+$/, "");
