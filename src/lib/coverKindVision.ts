@@ -24,7 +24,7 @@ export async function detectKindByVision(sampleFile: File, folderName: string): 
       reader.onerror=reject;
       reader.readAsDataURL(sampleFile);
     });
-    const prompt = `Klasifikasikan foto perhiasan ini ke SATU kata: single (untuk kalung rantai / gelang rantai - 1 foto grup besar di tengah), grid4 (untuk gelang bangle/kaku - 4 per cover), grid6 (untuk cincin / anting tusuk / liontin / bros - 6 per cover). Lihat bentuk perhiasan, bukan background. Jawab HANYA: single atau grid4 atau grid6.`;
+    const prompt = `KAMU ADALAH KLASIFIKATOR PERHIASAN. LIHAT GAMBAR REFERENSI: ANTING GANTUNG/TUSUK=anting, CINCIN=cincin bulat kecil, GELANG BANGLE=gelang kaku tebal melingkar (cover 4), GELANG RANTAI=gelang rantai BANYAK SAMBUNG MEMANJANG di tray (cover single/khusus rantai), LIONTIN=liontin kotak/bulat. KLASIFIKASI: single HANYA untuk kalung rantai ATAU gelang rantai yang terlihat BANYAK MATA RANTAI MEMANJANG di atas tray (BUKAN bangle kaku), grid4 utk bangle/kaku, grid6 utk cincin/anting tusuk/liontin/bros. JIKA NAMPAK BANYAK GELANG BERJEJER MEMANJANG=HAMPIR PASTI single (gelang rantai). JAWAB HANYA: single atau grid4 atau grid6.`;
         const res = await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt, imageBase64: base64, visionUrl:"https://9router.naelvi.com/v1", visionKey:"sk-9router-naelvi-master", visionModel:"ag/gemini-3.7-flash-medium"})});
     if(!res.ok) throw new Error("ai fail");
     const data = await res.json();

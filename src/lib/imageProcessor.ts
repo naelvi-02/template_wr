@@ -141,7 +141,8 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
   if (keepTray) {
     const box = getFastBoundingBox(origImg);
     // add small padding around tray so not clipped
-    const pad = Math.floor(Math.min(box.width, box.height) * 0.04);
+    // RantaiFix: clamp to keep tray visible, tighter bbox
+    const pad = Math.floor(Math.min(box.width, box.height) * 0.06);
     const x = Math.max(0, box.x - pad);
     const y = Math.max(0, box.y - pad);
     const w = Math.min(origImg.width - x, box.width + pad*2);

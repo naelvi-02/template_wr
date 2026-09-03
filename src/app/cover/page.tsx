@@ -268,8 +268,8 @@ export default function CoverPage(){
             let category=entry.category;
             if(!category){
               const base64=await compressImageForAI(entry.file);
-              const prompt="Please analyze this jewelry image and reply with ONLY ONE of the following categories: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. Do not say anything else.";
-              const response=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt, imageBase64:base64})});
+              const prompt="LIHAT REFERENSI: ANTING GANTUNG/TUSUK=anting, CINCIN=cincin bulat kecil, GELANG BANGLE=gelang kaku tebal, GELANG RANTAI=rantai banyak sambung memanjang di tray, LIONTIN=liontin. Klasifikasi KE SATU KATA: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. Jika BANYAK GELANG BERJEJER MEMANJANG=Bracelet rantai. Jawab HANYA satu kata.";
+              const response=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt, imageBase64:base64, visionUrl:"https://9router.naelvi.com/v1", visionKey:"sk-9router-naelvi-master", visionModel:"ag/gemini-3.7-flash-medium"})});
               category="Ring";
               if(response.ok){
                 const data=await response.json();
@@ -313,7 +313,12 @@ export default function CoverPage(){
         mainBbox=cached.mainBbox;
       } else {
         const keepTray = isRantaiFolder(target.folderName||"");
-        const resMain=await loadAndProcessImage(target.file, target.category, keepTray);
+        let effCategory = target.category;
+        if(isRantaiFolder(target.folderName||"")){
+          const up=(target.folderName||"").toUpperCase();
+          if(up.includes("KALUNG")) effCategory="Necklace"; else effCategory="Bracelet";
+        }
+        const resMain=await loadAndProcessImage(target.file, effCategory, keepTray);
         mainCropped=resMain.canvas;
         mainBbox=resMain.bbox;
         processCache.current.set(cacheKey,{mainCropped, mainBbox, lighting: calculateAutoLighting(mainCropped)});
@@ -367,6 +372,23 @@ export default function CoverPage(){
       ctx.shadowOffsetY=10;
       ctx.drawImage(mainCropped,cx,cy,drawW,drawH);
       ctx.restore();
+      // RANTAI highlight: highlight 1 perhiasan (kiri->kanan)
+      const rIdx=(target as any).rantaiIndex;
+      const rTot=(target as any).rantaiTotal;
+      if(rIdx!==undefined && rTot && rIdx>=0){
+        try{
+          const zoneW = drawW / rTot;
+          for(let zi=0; zi<rTot; zi++){
+            if(zi===rIdx) continue;
+            const zx = cx + zi*zoneW;
+            ctx.fillStyle="rgba(255,255,255,0.52)";
+            ctx.fillRect(zx, cy, zoneW, drawH);
+          }
+          ctx.strokeStyle="#E53E3E";
+          ctx.lineWidth=4;
+          ctx.strokeRect(cx + rIdx*zoneW, cy, zoneW, drawH);
+        }catch{}
+      }
 
       // Folder-level kadar/nampan from txt (always override if folder has txt), item-level berat/size via txtItem match
       let karatText=target.karat;
@@ -461,10 +483,20 @@ export default function CoverPage(){
   const isRantaiFolder = (f: string)=> (f||"").toUpperCase().includes("RANTAI");
   const handleGenerate = async ()=>{
     if(generateState==="paused"){ pauseSignal.current=false; setGenerateState("generating"); return; }
-    const targets=files.filter(f=>!f.detecting && f.status!=="done");
+    // RANTAI: 1 foto -> N varian sesuai txt, highlight per perhiasan kiri->kanan
+    const baseTargets=files.filter(f=>!f.detecting && f.status!=="done");
+    let targets=[];
+    for(const f of baseTargets){
+      if(isRantaiFolder(f.folderName||"")){
+        const det = etalaseDetails.get(f.folderName||"");
+        const n = det?.items.size || 1;
+        if(n<=1) targets.push(f);
+        else { for(let i=0;i<n;i++) targets.push({...f, id: f.id+"-rantai-"+i, rantaiIndex:i, rantaiTotal:n, baseName: f.baseName+" "+(i+1)+"/"+n, _rantaiBaseId: f.id} as any); }
+      } else targets.push(f);
+    }
     if(!targets.length || generating) return;
     setGenerating(true); setGenerateState("generating"); stopSignal.current=false; pauseSignal.current=false; setProgress(0); setProcessedCount(0); setEtaText(null); etaRef.current = Date.now();
-    setFiles(prev=>prev.map(f=>targets.find(t=>t.id===f.id)?{...f,status:"queued",resultUrl:null,exported:false}:f));
+    setFiles(prev=>prev.map(f=>{ const isT = targets.find(t=>t.id===f.id || (t as any)._rantaiBaseId===f.id); return isT?{...f,status:"queued",resultUrl:null,exported:false}:f; }));
     let doneCount=0;
     const hw2 = (typeof navigator !== "undefined" && (navigator as any).hardwareConcurrency) || 4;
     const maxConcurrency = Math.min(3, Math.max(1, Math.floor(hw2/4)+1));
@@ -490,14 +522,30 @@ export default function CoverPage(){
         }
         if(stopSignal.current) break;
         const success=!!resultUrl;
-        setFiles(prev=>prev.map(f=>f.id===target.id?{...f,status: success?"done":"error",resultUrl: success?resultUrl:null,resultBlob: success?resultBlob:undefined,exported:false}:f));
+        const isRantaiT = (target as any)._rantaiBaseId;
+        if(isRantaiT){
+          if(success){
+            setFiles(prev=>{
+              const base = prev.find(x=>x.id===isRantaiT);
+              if(!base) return prev;
+              const exists = prev.find(x=>x.id===target.id);
+              if(exists) return prev.map(f=>f.id===target.id?{...f,status:"done",resultUrl: success?resultUrl:null,resultBlob: success?resultBlob:undefined,exported:false}:f);
+              const clone:any = {...base, id: target.id, resultUrl: resultUrl, resultBlob: resultBlob, status:"done", baseName: target.baseName, rantaiIndex:(target as any).rantaiIndex, rantaiTotal:(target as any).rantaiTotal};
+              return [...prev, clone];
+            });
+          } else {
+            setFiles(prev=>prev.map(f=>f.id===target.id?{...f,status:"error"}:f));
+          }
+        } else {
+          setFiles(prev=>prev.map(f=>f.id===target.id?{...f,status: success?"done":"error",resultUrl: success?resultUrl:null,resultBlob: success?resultBlob:undefined,exported:false}:f));
+        }
         doneCount++;
         setProgress(Math.round((doneCount/targets.length)*100));
         if(etaRef.current!=null && doneCount>0){
           const elapsed = Date.now()-etaRef.current;
           const avg = elapsed/doneCount;
           const remain = Math.round((avg*(targets.length-doneCount))/1000);
-          setEtaText(`${remain}s lagi`);
+          if(remain>=60) setEtaText(`${Math.floor(remain/60)}m ${remain%60}s lagi`); else setEtaText(`${remain}s lagi`);
         }
         setProcessedCount(doneCount);
       }
