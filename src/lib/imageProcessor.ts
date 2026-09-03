@@ -1,31 +1,22 @@
 export function parseFilename(filename: string) {
   let isDetail = false;
   let nameWithoutExt = filename.replace(/\.[^/.]+$/, "").trim();
-  
-  // Strip ALL trailing non-alphanumeric characters (like zero-width spaces, weird punctuation)
   nameWithoutExt = nameWithoutExt.replace(/[^a-zA-Z0-9)]+$/, "");
-  
   if (/(?:\s|_|\-|)KAIT$/i.test(nameWithoutExt)) {
     isDetail = true;
     nameWithoutExt = nameWithoutExt.replace(/(?:\s|_|\-|)KAIT$/i, "");
-  } else if (/(?:\s|_|\-)2$/i.test(nameWithoutExt)) {
+  } else if (/(?:\s|_|-)2$/i.test(nameWithoutExt)) {
     isDetail = true;
-    nameWithoutExt = nameWithoutExt.replace(/(?:\s|_|\-)2$/i, "");
+    nameWithoutExt = nameWithoutExt.replace(/(?:\s|_|-)2$/i, "");
   }
-  
   const tokens = nameWithoutExt.split(/\s+/);
   const baseName = tokens.join(" ");
-  
-  let karat = "16K"; // default fallback
-  let mp = "MP 16"; // default fallback
-  let category = null;
-  
+  let karat = "16K";
+  let mp = "MP 16";
+  let category: string | null = null;
   if (tokens.length > 0) {
     const fullText = nameWithoutExt.toUpperCase();
-    const matchWord = (words: string[]) => {
-      return words.some(w => new RegExp(`(?:^|[\\s_\\-])${w}(?:[\\s_\\-]|$)`, "i").test(fullText));
-    };
-
+    const matchWord = (words: string[]) => words.some(w => new RegExp(`(?:^|[\\s_\\-])${w}(?:[\\s_\\-]|$)`, "i").test(fullText));
     if (matchWord(["KL", "KALUNG", "NECKLACE"])) category = "Necklace";
     else if (matchWord(["GL", "GELANG", "BRACELET"])) category = "Bracelet";
     else if (matchWord(["CC", "CINCIN", "RING"])) category = "Ring";
@@ -33,7 +24,6 @@ export function parseFilename(filename: string) {
     else if (matchWord(["LT", "LIONTIN", "PENDANT"])) category = "Pendant";
     else if (matchWord(["BR", "BROS", "BROOCH"])) category = "Brooch";
   }
-  
   for (let i = 0; i < tokens.length; i++) {
     if (/^\d{1,2}K[A-Z]*$/i.test(tokens[i])) {
       karat = tokens[i].toUpperCase();
@@ -50,9 +40,7 @@ export function parseFilename(filename: string) {
       break;
     }
   }
-  
   const groupId = baseName.replace(/\s+/g, "").toUpperCase();
-  
   return { baseName, karat, mp, category, isDetail, groupId };
 }
 
@@ -61,11 +49,8 @@ export function getObjectsBoundingBoxes(canvas: HTMLCanvasElement) {
   if (!ctx) return [];
   const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const w = canvas.width, h = canvas.height;
-
-  // 1. Column projection with noise filtering
   const cols = new Array(w).fill(false);
-  const minPixelsPerCol = Math.max(10, Math.floor(h * 0.015)); // e.g., 15px for 1000px height
-  
+  const minPixelsPerCol = Math.max(10, Math.floor(h * 0.015));
   for (let x = 0; x < w; x++) {
     let solidCount = 0;
     let hasOpaque = false;
@@ -74,314 +59,230 @@ export function getObjectsBoundingBoxes(canvas: HTMLCanvasElement) {
       if (alpha > 200) hasOpaque = true;
       if (alpha > 40) solidCount++;
     }
-    if (hasOpaque || solidCount > minPixelsPerCol) {
-      cols[x] = true;
-    }
+    if (hasOpaque || solidCount > minPixelsPerCol) cols[x] = true;
   }
-
-  // 2. Group columns into segments with a gap threshold
   const GAP_THRESHOLD = Math.max(20, Math.floor(w * 0.05));
   const segments: { start: number, end: number }[] = [];
   let currentStart = -1;
   let lastFilled = -1;
-
   for (let x = 0; x < w; x++) {
     if (cols[x]) {
-      if (currentStart === -1) {
-        currentStart = x;
-      } else if (lastFilled !== -1 && (x - lastFilled) > GAP_THRESHOLD) {
+      if (currentStart === -1) currentStart = x;
+      else if (lastFilled !== -1 && (x - lastFilled) > GAP_THRESHOLD) {
         segments.push({ start: currentStart, end: lastFilled });
         currentStart = x;
       }
       lastFilled = x;
     }
   }
-  if (currentStart !== -1 && lastFilled !== -1) {
-    segments.push({ start: currentStart, end: lastFilled });
-  }
-
-  // 3. Find Y bounds for each segment
+  if (currentStart !== -1 && lastFilled !== -1) segments.push({ start: currentStart, end: lastFilled });
   const boxes = segments.map(seg => {
     let top = -1, bottom = -1;
     for (let y = 0; y < h; y++) {
       let hasPixel = false;
       for (let x = seg.start; x <= seg.end; x++) {
-        if (data.data[(y * w + x) * 4 + 3] > 10) {
-          hasPixel = true;
-          break;
-        }
+        if (data.data[(y * w + x) * 4 + 3] > 10) { hasPixel = true; break; }
       }
-      if (hasPixel) {
-        if (top === -1) top = y;
-        bottom = y;
-      }
+      if (hasPixel) { if (top === -1) top = y; bottom = y; }
     }
-    return {
-      x: seg.start,
-      y: top,
-      width: seg.end - seg.start + 1,
-      height: bottom - top + 1,
-      centerX: seg.start + (seg.end - seg.start) / 2
-    };
+    return { x: seg.start, y: top, width: seg.end - seg.start + 1, height: bottom - top + 1, centerX: seg.start + (seg.end - seg.start) / 2 };
   });
-
   return boxes;
 }
 
+// --- Worker offload for @imgly/background-removal ---
+let _bgWorker: Worker | null = null;
+function getBgWorker(): Worker | null {
+  if (_bgWorker) return _bgWorker;
+  try {
+    // Next 15 + Turbopack supports new Worker(new URL(...))
+    _bgWorker = new Worker(new URL("../workers/bgRemove.worker.ts", import.meta.url));
+  } catch { _bgWorker = null; }
+  return _bgWorker;
+}
+export function preloadBgModel() {
+  const w = getBgWorker();
+  if (!w) return;
+  try {
+    const c = document.createElement("canvas"); c.width = 2; c.height = 2;
+    c.toBlob(b => {
+      if (!b) return;
+      const id = "preload_" + Date.now();
+      const handler = (e: MessageEvent) => { if (e.data?.id === id) w.removeEventListener("message", handler as any); };
+      w.addEventListener("message", handler as any);
+      w.postMessage({ id, blob: b });
+    }, "image/jpeg", 0.8);
+  } catch {}
+}
+async function removeBackgroundViaWorker(preBlob: Blob): Promise<Blob | null> {
+  const w = getBgWorker();
+  if (!w) return null;
+  try { if (new URLSearchParams(location.search).has("noworker")) return null; } catch {}
+  return new Promise(resolve => {
+    const id = Math.random().toString(36).slice(2);
+    let done = false;
+    const t = setTimeout(() => { if (!done) { done = true; w.removeEventListener("message", h as any); resolve(null); } }, 30000);
+    function h(e: MessageEvent) {
+      if (e.data?.id !== id) return;
+      done = true; clearTimeout(t); w!.removeEventListener("message", h as any);
+      if (e.data?.ok && e.data?.blob) resolve(e.data.blob as Blob); else resolve(null);
+    }
+    w!.addEventListener("message", h as any);
+    w.postMessage({ id, blob: preBlob });
+  });
+}
+
 export async function loadAndProcessImage(asBlob: Blob, category: string | null = null): Promise<{ canvas: HTMLCanvasElement, bbox: any, originalWidth: number, originalHeight: number }> {
-  const { removeBackground } = await import("@imgly/background-removal");
-  
-  // 1. Pre-process image for AI (Boost contrast so AI can see white-gold on white-paper better)
+  // 1. Pre-process image for AI
   const origUrl = URL.createObjectURL(asBlob);
   const origImg = new Image();
   origImg.crossOrigin = "anonymous";
-  await new Promise((resolve, reject) => {
-    origImg.onload = resolve;
-    origImg.onerror = reject;
-    origImg.src = origUrl;
-  });
+  await new Promise((resolve, reject) => { origImg.onload = resolve; origImg.onerror = reject; origImg.src = origUrl; });
+  URL.revokeObjectURL(origUrl);
 
+  // Downscale pre-processing to max 1024 before AI (2x faster, same quality — AI resizes internally anyway)
+  const PRE_MAX = 1024;
+  let preW = origImg.width, preH = origImg.height;
+  const preScale = Math.min(1, Math.min(PRE_MAX / preW, PRE_MAX / preH));
+  const needDownscale = preScale < 1;
   const preCanvas = document.createElement("canvas");
-  preCanvas.width = origImg.width;
-  preCanvas.height = origImg.height;
+  preCanvas.width = Math.floor(preW * preScale);
+  preCanvas.height = Math.floor(preH * preScale);
   const preCtx = preCanvas.getContext("2d");
   if (!preCtx) throw new Error("No context");
-  
-  // Darken slightly and boost contrast heavily
-  preCtx.drawImage(origImg, 0, 0);
-  
+  preCtx.drawImage(origImg, 0, 0, preCanvas.width, preCanvas.height);
+
   if (category === "Ring" || category === "Bracelet" || category === "Pendant" || category === "Brooch") {
-    // Custom non-linear curve to DARKEN silver/white-gold (e.g. RGB 210) 
-    // while keeping pure white paper (RGB 245-255) relatively bright.
-    // This drastically helps the AI find the edges of white metal on white backgrounds.
     const preImgData = preCtx.getImageData(0, 0, preCanvas.width, preCanvas.height);
     const d = preImgData.data;
+    // single-pass pow4 (was per-channel loop)
     for (let i = 0; i < d.length; i += 4) {
-      for (let c = 0; c < 3; c++) {
-        let norm = d[i+c] / 255;
-        d[i+c] = Math.pow(norm, 4) * 255;
-      }
+      const r = d[i] / 255, g = d[i+1] / 255, b = d[i+2] / 255;
+      d[i] = Math.pow(r, 4) * 255;
+      d[i+1] = Math.pow(g, 4) * 255;
+      d[i+2] = Math.pow(b, 4) * 255;
     }
     preCtx.putImageData(preImgData, 0, 0);
   }
-  
+
   const preBlob = await new Promise<Blob>((resolve) => preCanvas.toBlob(b => resolve(b!), 'image/jpeg', 0.9));
 
-  // 2. Run AI on the pre-processed image
-  const bgRemovedBlob = await removeBackground(preBlob, {
-    progress: () => {},
-    model: "isnet"
-  });
-  
+  // 2. Run AI — try worker first, fallback to main thread
+  let bgRemovedBlob: Blob | null = await removeBackgroundViaWorker(preBlob);
+  if (!bgRemovedBlob) {
+    const { removeBackground } = await import("@imgly/background-removal");
+    bgRemovedBlob = await removeBackground(preBlob, { progress: () => {}, model: "isnet" });
+  }
+
   const bgRemovedUrl = URL.createObjectURL(bgRemovedBlob);
-  
   const img = new Image();
   img.crossOrigin = "anonymous";
-  await new Promise((resolve, reject) => {
-    img.onload = resolve;
-    img.onerror = reject;
-    img.src = bgRemovedUrl;
-  });
+  await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = bgRemovedUrl; });
 
-  // FULL RES CANVAS
   const canvas = document.createElement("canvas");
   canvas.width = img.width;
   canvas.height = img.height;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Could not get context");
-
-  // 1. Apply enhancement filter
   ctx.filter = 'brightness(1.03) contrast(1.05) saturate(1.05)';
-  
-  // 2. Draw ORIGINAL image (so we get original colors)
-  ctx.drawImage(origImg, 0, 0);
-  
-  // 3. Reset filter and apply AI's alpha mask
+  // draw original at potentially downscaled size? Use original for final quality
+  // If we downscaled pre, img is small — upscale original to match bg mask size handled below
+  // Simpler: draw origImg scaled to img size
+  ctx.drawImage(origImg, 0, 0, canvas.width, canvas.height);
   ctx.filter = 'none';
   ctx.globalCompositeOperation = 'destination-in';
   ctx.drawImage(img, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
 
-  // DOWNSCALED CANVAS for fast pixel processing (max 800px)
   const MAX_DIM = 800;
   const scale = Math.min(1, Math.min(MAX_DIM / img.width, MAX_DIM / img.height));
   const downW = Math.floor(img.width * scale);
   const downH = Math.floor(img.height * scale);
-
   const lowCanvas = document.createElement("canvas");
   lowCanvas.width = downW;
   lowCanvas.height = downH;
   const lowCtx = lowCanvas.getContext("2d", { willReadFrequently: true });
   if (!lowCtx) throw new Error("Context");
   lowCtx.drawImage(canvas, 0, 0, downW, downH);
-
   const imgData = lowCtx.getImageData(0, 0, downW, downH);
-  for (let i = 3; i < imgData.data.length; i += 4) {
-    if (imgData.data[i] < 50) imgData.data[i] = 0;
-  }
-  
-  const w = downW;
-  const h = downH;
+  for (let i = 3; i < imgData.data.length; i += 4) if (imgData.data[i] < 50) imgData.data[i] = 0;
+  const w = downW, h = downH;
   const data = imgData.data;
   const compIdMap = new Int32Array(w * h);
   const components: {id: number, minX: number, maxX: number, minY: number, maxY: number, area: number}[] = [];
   const q = new Int32Array(w * h);
   let nextCompId = 1;
-
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const idx = y * w + x;
       if (compIdMap[idx] === 0 && data[idx * 4 + 3] > 0) {
         const currentId = nextCompId++;
-        let head = 0;
-        let tail = 0;
-        q[tail++] = idx;
-        compIdMap[idx] = currentId;
-        
+        let head = 0, tail = 0;
+        q[tail++] = idx; compIdMap[idx] = currentId;
         let minX = x, maxX = x, minY = y, maxY = y;
-        
         while (head < tail) {
           const curr = q[head++];
-          const cy = Math.floor(curr / w);
-          const cx = curr % w;
-          
-          if (cx < minX) minX = cx;
-          if (cx > maxX) maxX = cx;
-          if (cy < minY) minY = cy;
-          if (cy > maxY) maxY = cy;
-          
-          if (cy > 0) {
-            const up = curr - w;
-            if (compIdMap[up] === 0 && data[up * 4 + 3] > 0) { compIdMap[up] = currentId; q[tail++] = up; }
-          }
-          if (cy < h - 1) {
-            const down = curr + w;
-            if (compIdMap[down] === 0 && data[down * 4 + 3] > 0) { compIdMap[down] = currentId; q[tail++] = down; }
-          }
-          if (cx > 0) {
-            const left = curr - 1;
-            if (compIdMap[left] === 0 && data[left * 4 + 3] > 0) { compIdMap[left] = currentId; q[tail++] = left; }
-          }
-          if (cx < w - 1) {
-            const right = curr + 1;
-            if (compIdMap[right] === 0 && data[right * 4 + 3] > 0) { compIdMap[right] = currentId; q[tail++] = right; }
-          }
+          const cy = Math.floor(curr / w), cx = curr % w;
+          if (cx < minX) minX = cx; if (cx > maxX) maxX = cx; if (cy < minY) minY = cy; if (cy > maxY) maxY = cy;
+          if (cy > 0) { const up = curr - w; if (compIdMap[up] === 0 && data[up * 4 + 3] > 0) { compIdMap[up] = currentId; q[tail++] = up; } }
+          if (cy < h - 1) { const down = curr + w; if (compIdMap[down] === 0 && data[down * 4 + 3] > 0) { compIdMap[down] = currentId; q[tail++] = down; } }
+          if (cx > 0) { const left = curr - 1; if (compIdMap[left] === 0 && data[left * 4 + 3] > 0) { compIdMap[left] = currentId; q[tail++] = left; } }
+          if (cx < w - 1) { const right = curr + 1; if (compIdMap[right] === 0 && data[right * 4 + 3] > 0) { compIdMap[right] = currentId; q[tail++] = right; } }
         }
-        
         const area = (maxX - minX + 1) * (maxY - minY + 1);
         components.push({ id: currentId, minX, maxX, minY, maxY, area });
-      } else if (compIdMap[idx] === 0) {
-        compIdMap[idx] = -1;
-      }
+      } else if (compIdMap[idx] === 0) compIdMap[idx] = -1;
     }
   }
-
   const validIds = new Set<number>();
   if (components.length > 0) {
     const maxArea = Math.max(...components.map(c => c.area));
     components.forEach(c => {
-      const isAtBottom = c.minY > h * 0.65; 
+      const isAtBottom = c.minY > h * 0.65;
       if (isAtBottom && c.area < maxArea * 0.4) return;
       if (c.area >= maxArea * 0.08) validIds.add(c.id);
     });
-    
-    for (let i = 0; i < w * h; i++) {
-      const id = compIdMap[i];
-      if (id > 0 && !validIds.has(id)) {
-        data[i * 4 + 3] = 0;
-      }
-    }
+    for (let i = 0; i < w * h; i++) { const id = compIdMap[i]; if (id > 0 && !validIds.has(id)) data[i * 4 + 3] = 0; }
   }
-
   lowCtx.putImageData(imgData, 0, 0);
-
-  // Apply cleanup to high-res canvas by masking
   const maskCanvas = document.createElement("canvas");
-  maskCanvas.width = img.width;
-  maskCanvas.height = img.height;
+  maskCanvas.width = img.width; maskCanvas.height = img.height;
   const maskCtx = maskCanvas.getContext("2d")!;
-  // Draw the low-res alpha-cleared image scaled up as a mask
   maskCtx.drawImage(lowCanvas, 0, 0, img.width, img.height);
-  
-  // Use destination-in so only the opaque parts of the mask keep the original high-res pixels
   ctx.globalCompositeOperation = "destination-in";
   ctx.drawImage(maskCanvas, 0, 0);
   ctx.globalCompositeOperation = "source-over";
-
-  const boxes = getObjectsBoundingBoxes(lowCanvas).map(b => ({
-    x: b.x / scale,
-    y: b.y / scale,
-    width: b.width / scale,
-    height: b.height / scale,
-    centerX: b.centerX / scale
-  }));
-  
+  const boxes = getObjectsBoundingBoxes(lowCanvas).map(b => ({ x: b.x / scale, y: b.y / scale, width: b.width / scale, height: b.height / scale, centerX: b.centerX / scale }));
   let finalBbox = { x: 0, y: 0, width: img.width, height: img.height };
   let duplicateMode = false;
-
   if (boxes.length > 0) {
     const imgCenterX = img.width / 2;
-    
     if (category === "Earrings") {
-      // Find the single central earring
-      let bestBox = boxes[0];
-      let minDiff = Math.abs(boxes[0].centerX - imgCenterX);
-      for (let i = 1; i < boxes.length; i++) {
-        const diff = Math.abs(boxes[i].centerX - imgCenterX);
-        if (diff < minDiff) {
-          minDiff = diff;
-          bestBox = boxes[i];
-        }
-      }
+      let bestBox = boxes[0]; let minDiff = Math.abs(boxes[0].centerX - imgCenterX);
+      for (let i = 1; i < boxes.length; i++) { const diff = Math.abs(boxes[i].centerX - imgCenterX); if (diff < minDiff) { minDiff = diff; bestBox = boxes[i]; } }
       finalBbox = bestBox;
-      
-      // Check if it's already a pair that was merged (aspect ratio width/height > 1.2)
       const aspectRatio = finalBbox.width / finalBbox.height;
-      if (aspectRatio < 1.2) {
-        duplicateMode = true;
-      }
+      if (aspectRatio < 1.2) duplicateMode = true;
     } else {
-      // Not earrings: isolate the central object
-      let bestBox = boxes[0];
-      let minDiff = Math.abs(boxes[0].centerX - imgCenterX);
-      for (let i = 1; i < boxes.length; i++) {
-        const diff = Math.abs(boxes[i].centerX - imgCenterX);
-        if (diff < minDiff) {
-          minDiff = diff;
-          bestBox = boxes[i];
-        }
-      }
+      let bestBox = boxes[0]; let minDiff = Math.abs(boxes[0].centerX - imgCenterX);
+      for (let i = 1; i < boxes.length; i++) { const diff = Math.abs(boxes[i].centerX - imgCenterX); if (diff < minDiff) { minDiff = diff; bestBox = boxes[i]; } }
       finalBbox = bestBox;
     }
   }
-
   let finalCanvas = document.createElement("canvas");
-  
   if (duplicateMode) {
-    // Duplicate the single central earring side-by-side
     const gap = Math.floor(finalBbox.width * 0.5);
-    finalCanvas.width = finalBbox.width * 2 + gap;
-    finalCanvas.height = finalBbox.height;
+    finalCanvas.width = finalBbox.width * 2 + gap; finalCanvas.height = finalBbox.height;
     const fCtx = finalCanvas.getContext("2d")!;
-    
-    // Draw left copy
     fCtx.drawImage(canvas, finalBbox.x, finalBbox.y, finalBbox.width, finalBbox.height, 0, 0, finalBbox.width, finalBbox.height);
-    // Draw right copy
     fCtx.drawImage(canvas, finalBbox.x, finalBbox.y, finalBbox.width, finalBbox.height, finalBbox.width + gap, 0, finalBbox.width, finalBbox.height);
-    
-    finalBbox.width = finalCanvas.width;
-    finalBbox.x = 0; 
-    finalBbox.y = 0;
+    finalBbox.width = finalCanvas.width; finalBbox.x = 0; finalBbox.y = 0;
   } else {
-    // Standard tight crop
-    finalCanvas.width = finalBbox.width;
-    finalCanvas.height = finalBbox.height;
+    finalCanvas.width = finalBbox.width; finalCanvas.height = finalBbox.height;
     const fCtx = finalCanvas.getContext("2d")!;
     fCtx.drawImage(canvas, finalBbox.x, finalBbox.y, finalBbox.width, finalBbox.height, 0, 0, finalBbox.width, finalBbox.height);
   }
-  
   URL.revokeObjectURL(bgRemovedUrl);
-
   return { canvas: finalCanvas, bbox: finalBbox, originalWidth: img.width, originalHeight: img.height };
 }
 
@@ -389,116 +290,41 @@ export function getFastBoundingBox(img: HTMLImageElement | HTMLCanvasElement) {
   const canvas = document.createElement("canvas");
   const MAX_DIM = 400;
   const scale = Math.min(1, Math.min(MAX_DIM / img.width, MAX_DIM / img.height));
-  canvas.width = Math.floor(img.width * scale);
-  canvas.height = Math.floor(img.height * scale);
+  canvas.width = Math.floor(img.width * scale); canvas.height = Math.floor(img.height * scale);
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return { x: 0, y: 0, width: img.width, height: img.height, centerX: img.width / 2 };
-  
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imgData.data;
   let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0;
-  
   for (let y = 0; y < canvas.height; y++) {
     for (let x = 0; x < canvas.width; x++) {
       const i = (y * canvas.width + x) * 4;
-      const r = data[i];
-      const g = data[i+1];
-      const b = data[i+2];
-      
-      // Treat very light grey/white as background (> 230 average RGB)
-      if ((r + g + b) / 3 < 235) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
+      const r = data[i], g = data[i+1], b = data[i+2];
+      if ((r + g + b) / 3 < 235) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
     }
   }
-  
-  if (minX > maxX) {
-    return { x: 0, y: 0, width: img.width, height: img.height, centerX: img.width / 2 };
-  }
-  
-  return {
-    x: minX / scale,
-    y: minY / scale,
-    width: (maxX - minX) / scale,
-    height: (maxY - minY) / scale,
-    centerX: (minX + (maxX - minX) / 2) / scale
-  };
+  if (minX > maxX) return { x: 0, y: 0, width: img.width, height: img.height, centerX: img.width / 2 };
+  return { x: minX / scale, y: minY / scale, width: (maxX - minX) / scale, height: (maxY - minY) / scale, centerX: (minX + (maxX - minX) / 2) / scale };
 }
 
-export interface LightingAdjustments {
-  brightness: number;
-  contrast: number;
-  saturate: number;
-}
-
+export interface LightingAdjustments { brightness: number; contrast: number; saturate: number; }
 export function calculateAutoLighting(canvas: HTMLCanvasElement): LightingAdjustments {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return { brightness: 100, contrast: 100, saturate: 100 };
-
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imgData.data;
-  
-  let totalLuminance = 0;
-  let pixelCount = 0;
-  
-  // First pass: Calculate average luminance
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i + 3] > 10) { // Only count non-transparent pixels
-      // Luminance formula (perceptual)
-      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-      totalLuminance += lum;
-      pixelCount++;
-    }
-  }
-
+  let totalLuminance = 0, pixelCount = 0;
+  for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 10) { totalLuminance += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]; pixelCount++; }
   if (pixelCount === 0) return { brightness: 100, contrast: 100, saturate: 100 };
-
   const avgLuminance = totalLuminance / pixelCount;
-  
-  // Second pass: Calculate standard deviation (contrast indicator)
   let sumOfSquares = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i + 3] > 10) {
-      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-      sumOfSquares += Math.pow(lum - avgLuminance, 2);
-    }
-  }
-  
+  for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 10) { const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]; sumOfSquares += Math.pow(lum - avgLuminance, 2); }
   const stdDev = Math.sqrt(sumOfSquares / pixelCount);
-  
-  // Determine adjustments (in percentages: 100 = 1.0)
-  let brightness = 100;
-  let contrast = 100;
-  let saturate = 100;
-
-  // Target optimal average luminance for jewelry is around 170
-  if (avgLuminance < 150) {
-    // Too dark, increase brightness (max +40%)
-    brightness += Math.min(40, (150 - avgLuminance) * 0.8);
-  } else if (avgLuminance > 220) {
-    // Too bright, slightly decrease brightness
-    brightness -= Math.min(15, (avgLuminance - 220) * 0.5);
-  }
-
-  // Target standard deviation is around 60 (good contrast)
-  if (stdDev < 50) {
-    // Dull image, increase contrast (max +30%)
-    contrast += Math.min(30, (50 - stdDev) * 1.5);
-    // Boosting contrast on dull images usually requires a slight saturation boost
-    saturate += Math.min(20, (50 - stdDev) * 1.0);
-  } else if (stdDev > 80) {
-    // Extremely high contrast (harsh shadows/highlights)
-    contrast -= Math.min(10, (stdDev - 80) * 0.3);
-  }
-
-  return { 
-    brightness: Math.round(brightness), 
-    contrast: Math.round(contrast), 
-    saturate: Math.round(saturate) 
-  };
+  let brightness = 100, contrast = 100, saturate = 100;
+  if (avgLuminance < 150) brightness += Math.min(40, (150 - avgLuminance) * 0.8);
+  else if (avgLuminance > 220) brightness -= Math.min(15, (avgLuminance - 220) * 0.5);
+  if (stdDev < 50) { contrast += Math.min(30, (50 - stdDev) * 1.5); saturate += Math.min(20, (50 - stdDev) * 1.0); }
+  else if (stdDev > 80) contrast -= Math.min(10, (stdDev - 80) * 0.3);
+  return { brightness: Math.round(brightness), contrast: Math.round(contrast), saturate: Math.round(saturate) };
 }

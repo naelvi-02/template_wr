@@ -7,7 +7,7 @@ import {
   User, Lock, Eye as EyeIcon, EyeOff, Save, ShieldCheck, Plus, Archive
 , FolderDown, Sun, Contrast, Droplet, Play, Pause, Square, TextCursorInput, Layers} from "lucide-react";
 import JSZip from "jszip";
-import { parseFilename, loadAndProcessImage, calculateAutoLighting } from "@/lib/imageProcessor";
+import { parseFilename, loadAndProcessImage, calculateAutoLighting, preloadBgModel } from "@/lib/imageProcessor";
 import { parseDetailsTxt, normalizeFileKey } from "@/lib/coverParser";
 import type { EtalaseDetail } from "@/lib/coverParser";
 import { detectCoverKind, chunkIntoCovers } from "@/lib/coverLayout";
@@ -83,6 +83,8 @@ export default function CoverPage(){
   const [generating, setGenerating] = useState(false);
   const [generateState, setGenerateState] = useState<"idle"|"generating"|"paused">("idle");
   const [progress, setProgress] = useState(0);
+  const [etaText, setEtaText] = useState<string | null>(null);
+  const etaRef = useRef<number | null>(null);
   const [processedCount, setProcessedCount] = useState(0);
   const [livePreviewUrl, setLivePreviewUrl] = useState<string|null>(null);
   const [isRenderingPreview, setIsRenderingPreview] = useState(false);
@@ -92,8 +94,9 @@ export default function CoverPage(){
   const [coverGenerating, setCoverGenerating] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  useEffect(()=>{ try{ preloadBgModel(); }catch{} },[]);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const processCache = useRef(new Map<string, { mainCropped: HTMLCanvasElement, mainBbox: any }>());
+  const processCache = useRef(new Map<string, { mainCropped: HTMLCanvasElement; mainBbox: any; lighting?: {brightness:number;contrast:number;saturate:number} }>());
   const renderTimeout = useRef<NodeJS.Timeout|null>(null);
   const stopSignal = useRef(false);
   const pauseSignal = useRef(false);
@@ -207,7 +210,8 @@ export default function CoverPage(){
       reader.readAsDataURL(file);
     });
     const processQueue=async()=>{
-      const maxConcurrency=3;
+        const hw = (typeof navigator !== "undefined" && (navigator as any).hardwareConcurrency) || 4;
+  const maxConcurrency = Math.min(3, Math.max(1, Math.floor(hw/4)+1));
       let i=0;
       const worker=async()=>{
         while(i<newEntries.length){
@@ -239,7 +243,9 @@ export default function CoverPage(){
     processQueue();
   },[activeId]);
 
-  const removeFile=(id:string)=>{
+    const removeFile=(id:string)=>{
+    const victim = files.find(f=>f.id===id);
+    if(victim){ try{ URL.revokeObjectURL(victim.url);}catch{} try{ if(victim.resultUrl) URL.revokeObjectURL(victim.resultUrl);}catch{} processCache.current.delete(id); }
     setFiles(prev=>{
       const next=prev.filter(f=>f.id!==id);
       if(activeId===id) setActiveId(next[0]?.id??null);
@@ -261,12 +267,12 @@ export default function CoverPage(){
         const resMain=await loadAndProcessImage(target.file, target.category);
         mainCropped=resMain.canvas;
         mainBbox=resMain.bbox;
-        processCache.current.set(cacheKey,{mainCropped, mainBbox});
+        processCache.current.set(cacheKey,{mainCropped, mainBbox, lighting: calculateAutoLighting(mainCropped)});
       }
       const templateImg=await getTemplateImg();
       const logicalW=templateImg.width;
       const logicalH=templateImg.height;
-      const scaleDown=isPreview?0.35:1.0;
+      const scaleDown=isPreview?0.25:1.0;
       const finalCanvas=document.createElement("canvas");
       finalCanvas.width=logicalW*scaleDown;
       finalCanvas.height=logicalH*scaleDown;
@@ -290,7 +296,13 @@ export default function CoverPage(){
       if(isNecklace) cy=0+currentY;
       let filterStr="none";
       try{
-        const autoLighting=(target.autoAdjust??globalAutoAdjust)?calculateAutoLighting(mainCropped):{brightness:100,contrast:100,saturate:100};
+        let autoLighting:{brightness:number;contrast:number;saturate:number};
+        const cachedLighting = processCache.current.get(cacheKey)?.lighting;
+        if(cachedLighting && (target.autoAdjust??globalAutoAdjust)){ autoLighting=cachedLighting; } else {
+          autoLighting=(target.autoAdjust??globalAutoAdjust)?calculateAutoLighting(mainCropped):{brightness:100,contrast:100,saturate:100};
+          const prev=processCache.current.get(cacheKey);
+          if(prev && (target.autoAdjust??globalAutoAdjust)) processCache.current.set(cacheKey,{...prev, lighting:autoLighting});
+        }
         const manualB=(target.brightness??globalBrightness);
         const manualC=(target.contrast??globalContrast);
         const manualS=(target.saturate??globalSaturate);
@@ -302,7 +314,7 @@ export default function CoverPage(){
       ctx.save();
       ctx.filter=filterStr;
       ctx.shadowColor="rgba(0,0,0,0.1)";
-      ctx.shadowBlur=20;
+      ctx.shadowBlur=isPreview?0:12;
       ctx.shadowOffsetY=10;
       ctx.drawImage(mainCropped,cx,cy,drawW,drawH);
       ctx.restore();
@@ -382,7 +394,7 @@ export default function CoverPage(){
       ctx.fillText(karatText,karatCx,karatCy);
 
       if(isPreview){
-        return finalCanvas.toDataURL("image/jpeg",0.6);
+        return finalCanvas.toDataURL("image/jpeg",0.5);
       } else {
         return new Promise<string|null>((resolve)=>{
           finalCanvas.toBlob((blob)=>{
@@ -401,10 +413,11 @@ export default function CoverPage(){
     if(generateState==="paused"){ pauseSignal.current=false; setGenerateState("generating"); return; }
     const targets=files.filter(f=>!f.detecting && f.status!=="done");
     if(!targets.length || generating) return;
-    setGenerating(true); setGenerateState("generating"); stopSignal.current=false; pauseSignal.current=false; setProgress(0); setProcessedCount(0);
+    setGenerating(true); setGenerateState("generating"); stopSignal.current=false; pauseSignal.current=false; setProgress(0); setProcessedCount(0); setEtaText(null); etaRef.current = Date.now();
     setFiles(prev=>prev.map(f=>targets.find(t=>t.id===f.id)?{...f,status:"queued",resultUrl:null,exported:false}:f));
     let doneCount=0;
-    const maxConcurrency=3;
+    const hw2 = (typeof navigator !== "undefined" && (navigator as any).hardwareConcurrency) || 4;
+    const maxConcurrency = Math.min(3, Math.max(1, Math.floor(hw2/4)+1));
     let index=0;
     const worker=async()=>{
       while(index<targets.length){
@@ -430,6 +443,12 @@ export default function CoverPage(){
         setFiles(prev=>prev.map(f=>f.id===target.id?{...f,status: success?"done":"error",resultUrl: success?resultUrl:null,resultBlob: success?resultBlob:undefined,exported:false}:f));
         doneCount++;
         setProgress(Math.round((doneCount/targets.length)*100));
+        if(etaRef.current!=null && doneCount>0){
+          const elapsed = Date.now()-etaRef.current;
+          const avg = elapsed/doneCount;
+          const remain = Math.round((avg*(targets.length-doneCount))/1000);
+          setEtaText(`${doneCount}/${targets.length} \u2022 ${remain}s lagi`);
+        }
         setProcessedCount(doneCount);
       }
     };
@@ -437,7 +456,7 @@ export default function CoverPage(){
     for(let i=0;i<maxConcurrency;i++) workers.push(worker());
     await Promise.all(workers);
     if(!stopSignal.current){
-      setTimeout(()=>{setGenerating(false); setGenerateState("idle");},400);
+      setTimeout(()=>{setGenerating(false); setGenerateState("idle");},250);
     }
   };
   const handlePause=()=>{pauseSignal.current=true; setGenerateState("paused");};
@@ -460,7 +479,7 @@ export default function CoverPage(){
           }catch(e){}
         }
         setIsRenderingPreview(false);
-      },400);
+      },250);
     } else {
       setLivePreviewUrl(activeFile.url);
     }
@@ -633,7 +652,7 @@ webkitdirectory="" directory="" className="hidden" onChange={(e)=>e.target.files
               <div className="rounded-2xl p-5 flex flex-col gap-4" style={{background:"rgba(255,255,255,0.8)",border:"1px solid rgba(0,0,0,0.07)",boxShadow:"0 2px 16px rgba(0,0,0,0.04)"}}>
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-bold text-[#1A1A2E]">Generate Varian</h3>
-                  {generating && <span className="text-xs font-semibold text-[#E53E3E]">{processedCount}/{files.length} • {progress}%</span>}
+                  {generating && <span className="text-xs font-semibold text-[#E53E3E]">{processedCount}/{files.length} • {progress}%{etaText ? ` • ${etaText}` : ""}</span>}
                 </div>
                 {generating && <div className="h-2 rounded-full overflow-hidden bg-gray-100"><div className="h-full transition-all" style={{width:`${progress}%`,background:"linear-gradient(90deg, #E53E3E, #FC8181)"}} /></div>}
                 <div className="flex gap-2">

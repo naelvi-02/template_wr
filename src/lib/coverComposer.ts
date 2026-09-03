@@ -57,7 +57,7 @@ export async function renderCoverBlob(opts: CoverRenderOptions): Promise<Blob | 
 
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.1)";
-    ctx.shadowBlur = 14;
+    ctx.shadowBlur = 8;
     ctx.shadowOffsetY = 6;
     ctx.drawImage(item.canvas, dx, dy, dw, dh);
     ctx.restore();
