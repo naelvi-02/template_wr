@@ -558,21 +558,33 @@ export default function CoverPage(){
         const activeCenterX = (logicalW / 2) + currentX;
         const activeCenterY = (logicalH / 2) + currentY;
 
-        // Soft oval mask radius encompassing the primary jewelry
-        const radiusX = Math.max(logicalW * 0.22, (region.boxW * drawW * 0.65));
-        const radiusY = Math.max(logicalH * 0.38, (region.boxH * drawH * 0.68));
+        // Angle of bracelet on display (diagonal roll vs horizontal tray)
+        let angle = 0;
+        if (region.boxW > 0.20 && region.boxH > 0.20) {
+          // Diagonal roll (like in DSC08069 and DSC08089 ~ -33 deg)
+          angle = -0.58;
+        }
 
-        // Draw soft feathered mask with 45px Gaussian blur so edges dissolve seamlessly
-        mCtx.filter = "blur(45px)";
+        // Tightly tailored mask around ONLY the active bracelet:
+        // Length along the bracelet strand covers full span:
+        const lenRadius = Math.max(logicalW * 0.50, drawW * 0.45);
+        // Thickness perpendicular to strand: tight so adjacent strands (120-150px away) are OUTSIDE the mask and blurred!
+        const thickRadius = Math.min(65, Math.max(35, (drawH / (rTot * 3.8))));
+
+        mCtx.save();
+        mCtx.translate(activeCenterX, activeCenterY);
+        mCtx.rotate(angle);
+        mCtx.filter = "blur(14px)";
         mCtx.fillStyle = "#ffffff";
         mCtx.beginPath();
-        mCtx.ellipse(activeCenterX, activeCenterY, Math.max(10, radiusX), Math.max(10, radiusY), 0, 0, Math.PI * 2);
+        mCtx.ellipse(0, 0, lenRadius, thickRadius, 0, 0, Math.PI * 2);
         mCtx.fill();
 
-        // Solid inner core so the center of primary jewelry stays 100% sharp
+        // Inner core along the active bracelet centerline
         mCtx.beginPath();
-        mCtx.ellipse(activeCenterX, activeCenterY, Math.max(5, radiusX * 0.65), Math.max(5, radiusY * 0.65), 0, 0, Math.PI * 2);
+        mCtx.ellipse(0, 0, lenRadius * 0.85, thickRadius * 0.55, 0, 0, Math.PI * 2);
         mCtx.fill();
+        mCtx.restore();
 
         // Mask sharp layer using destination-in
         sCtx.filter = "none";
