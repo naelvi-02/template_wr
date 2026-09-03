@@ -312,7 +312,8 @@ export default function CoverPage(){
         mainCropped=cached.mainCropped;
         mainBbox=cached.mainBbox;
       } else {
-        const resMain=await loadAndProcessImage(target.file, target.category);
+        const keepTray = isRantaiFolder(target.folderName||"");
+        const resMain=await loadAndProcessImage(target.file, target.category, keepTray);
         mainCropped=resMain.canvas;
         mainBbox=resMain.bbox;
         processCache.current.set(cacheKey,{mainCropped, mainBbox, lighting: calculateAutoLighting(mainCropped)});
@@ -457,6 +458,7 @@ export default function CoverPage(){
     }
   };
 
+  const isRantaiFolder = (f: string)=> (f||"").toUpperCase().includes("RANTAI");
   const handleGenerate = async ()=>{
     if(generateState==="paused"){ pauseSignal.current=false; setGenerateState("generating"); return; }
     const targets=files.filter(f=>!f.detecting && f.status!=="done");
@@ -614,7 +616,20 @@ export default function CoverPage(){
           success++;
         }catch(e){ console.error(e); }
       }
-      alert(`Berhasil menyimpan ${success} cover!`);
+      let vOk=0;
+      const done2 = files.filter(f=>f.status==="done"&&f.resultBlob);
+      for(const f of done2){
+        try{
+          let td = dirHandle;
+          const fk = f.folderName||"";
+          if(fk && fk!=="Tanpa Folder"){
+            try{ const parts=fk.split("/").filter(Boolean); let cur=dirHandle; for(const part of parts){ try{ cur=await cur.getDirectoryHandle(part); }catch{ cur=await cur.getDirectoryHandle(part,{create:true}); } } td=cur; }catch{}
+          }
+          const fh=await td.getFileHandle(f.name,{create:true});
+          const w=await fh.createWritable(); await w.write(f.resultBlob); await w.close(); vOk++;
+        }catch{}
+      }
+      alert(`Berhasil menyimpan ${success} cover + ${vOk} varian!`);
     }catch(err:any){
       if(err.name!=='AbortError'){ console.error(err); alert("Gagal akses folder."); }
     }

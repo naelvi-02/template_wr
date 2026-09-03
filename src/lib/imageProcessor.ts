@@ -90,12 +90,10 @@ export function getObjectsBoundingBoxes(canvas: HTMLCanvasElement) {
   return boxes;
 }
 
-// --- Worker offload for @imgly/background-removal ---
 let _bgWorker: Worker | null = null;
 function getBgWorker(): Worker | null {
   if (_bgWorker) return _bgWorker;
   try {
-    // Next 15 + Turbopack supports new Worker(new URL(...))
     _bgWorker = new Worker(new URL("../workers/bgRemove.worker.ts", import.meta.url));
   } catch { _bgWorker = null; }
   return _bgWorker;
@@ -121,7 +119,7 @@ async function removeBackgroundViaWorker(preBlob: Blob): Promise<Blob | null> {
   return new Promise(resolve => {
     const id = Math.random().toString(36).slice(2);
     let done = false;
-    const t = setTimeout(() => { if (!done) { done = true; w.removeEventListener("message", h as any); resolve(null); } }, 30000);
+    const t = setTimeout(() => { if (!done) { done = true; w!.removeEventListener("message", h as any); resolve(null); } }, 30000);
     function h(e: MessageEvent) {
       if (e.data?.id !== id) return;
       done = true; clearTimeout(t); w!.removeEventListener("message", h as any);
@@ -132,30 +130,49 @@ async function removeBackgroundViaWorker(preBlob: Blob): Promise<Blob | null> {
   });
 }
 
-export async function loadAndProcessImage(asBlob: Blob, category: string | null = null): Promise<{ canvas: HTMLCanvasElement, bbox: any, originalWidth: number, originalHeight: number }> {
-  // 1. Pre-process image for AI
+export async function loadAndProcessImage(asBlob: Blob, category: string | null = null, keepTray: boolean = false): Promise<{ canvas: HTMLCanvasElement, bbox: any, originalWidth: number, originalHeight: number }> {
   const origUrl = URL.createObjectURL(asBlob);
   const origImg = new Image();
   origImg.crossOrigin = "anonymous";
   await new Promise((resolve, reject) => { origImg.onload = resolve; origImg.onerror = reject; origImg.src = origUrl; });
   URL.revokeObjectURL(origUrl);
 
-  // Downscale pre-processing to max 1024 before AI (2x faster, same quality — AI resizes internally anyway)
+  // For GELANG RANTAI / KALUNG RANTAI: keep tray/display -> skip AI background removal, just bbox crop via color threshold
+  if (keepTray) {
+    const box = getFastBoundingBox(origImg);
+    // add small padding around tray so not clipped
+    const pad = Math.floor(Math.min(box.width, box.height) * 0.04);
+    const x = Math.max(0, box.x - pad);
+    const y = Math.max(0, box.y - pad);
+    const w = Math.min(origImg.width - x, box.width + pad*2);
+    const h = Math.min(origImg.height - y, box.height + pad*2);
+    const finalCanvas = document.createElement("canvas");
+    finalCanvas.width = w; finalCanvas.height = h;
+    const fCtx = finalCanvas.getContext("2d")!;
+    // high quality scaling
+    fCtx.imageSmoothingEnabled = true;
+    // @ts-ignore
+    if (fCtx.imageSmoothingQuality) fCtx.imageSmoothingQuality = "high";
+    fCtx.drawImage(origImg, x, y, w, h, 0, 0, w, h);
+    return { canvas: finalCanvas, bbox: { x: 0, y: 0, width: w, height: h }, originalWidth: origImg.width, originalHeight: origImg.height };
+  }
+
   const PRE_MAX = 1024;
   let preW = origImg.width, preH = origImg.height;
   const preScale = Math.min(1, Math.min(PRE_MAX / preW, PRE_MAX / preH));
-  const needDownscale = preScale < 1;
   const preCanvas = document.createElement("canvas");
   preCanvas.width = Math.floor(preW * preScale);
   preCanvas.height = Math.floor(preH * preScale);
   const preCtx = preCanvas.getContext("2d");
   if (!preCtx) throw new Error("No context");
+  preCtx.imageSmoothingEnabled = true;
+  // @ts-ignore
+  if (preCtx.imageSmoothingQuality) preCtx.imageSmoothingQuality = "high";
   preCtx.drawImage(origImg, 0, 0, preCanvas.width, preCanvas.height);
 
   if (category === "Ring" || category === "Bracelet" || category === "Pendant" || category === "Brooch") {
     const preImgData = preCtx.getImageData(0, 0, preCanvas.width, preCanvas.height);
     const d = preImgData.data;
-    // single-pass pow4 (was per-channel loop)
     for (let i = 0; i < d.length; i += 4) {
       const r = d[i] / 255, g = d[i+1] / 255, b = d[i+2] / 255;
       d[i] = Math.pow(r, 4) * 255;
@@ -165,9 +182,8 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
     preCtx.putImageData(preImgData, 0, 0);
   }
 
-  const preBlob = await new Promise<Blob>((resolve) => preCanvas.toBlob(b => resolve(b!), 'image/jpeg', 0.9));
+  const preBlob = await new Promise<Blob>((resolve) => preCanvas.toBlob(b => resolve(b!), 'image/jpeg', 0.92));
 
-  // 2. Run AI — try worker first, fallback to main thread
   let bgRemovedBlob: Blob | null = await removeBackgroundViaWorker(preBlob);
   if (!bgRemovedBlob) {
     const { removeBackground } = await import("@imgly/background-removal");
@@ -179,30 +195,40 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
   img.crossOrigin = "anonymous";
   await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = bgRemovedUrl; });
 
+  // Build full-res masked canvas (preserve original resolution to avoid blur)
   const canvas = document.createElement("canvas");
-  canvas.width = img.width;
-  canvas.height = img.height;
+  canvas.width = origImg.width;
+  canvas.height = origImg.height;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Could not get context");
+  ctx.imageSmoothingEnabled = true;
+  // @ts-ignore
+  if (ctx.imageSmoothingQuality) ctx.imageSmoothingQuality = "high";
   ctx.filter = 'brightness(1.03) contrast(1.05) saturate(1.05)';
-  // draw original at potentially downscaled size? Use original for final quality
-  // If we downscaled pre, img is small — upscale original to match bg mask size handled below
-  // Simpler: draw origImg scaled to img size
-  ctx.drawImage(origImg, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(origImg, 0, 0);
   ctx.filter = 'none';
+  // mask: scale small AI result to full res
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.width = canvas.width; maskCanvas.height = canvas.height;
+  const mCtx = maskCanvas.getContext("2d")!;
+  mCtx.imageSmoothingEnabled = true;
+  // @ts-ignore
+  if (mCtx.imageSmoothingQuality) mCtx.imageSmoothingQuality = "high";
+  mCtx.drawImage(img, 0, 0, maskCanvas.width, maskCanvas.height);
   ctx.globalCompositeOperation = 'destination-in';
-  ctx.drawImage(img, 0, 0);
+  ctx.drawImage(maskCanvas, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
 
   const MAX_DIM = 800;
-  const scale = Math.min(1, Math.min(MAX_DIM / img.width, MAX_DIM / img.height));
-  const downW = Math.floor(img.width * scale);
-  const downH = Math.floor(img.height * scale);
+  const scale = Math.min(1, Math.min(MAX_DIM / canvas.width, MAX_DIM / canvas.height));
+  const downW = Math.floor(canvas.width * scale);
+  const downH = Math.floor(canvas.height * scale);
   const lowCanvas = document.createElement("canvas");
   lowCanvas.width = downW;
   lowCanvas.height = downH;
   const lowCtx = lowCanvas.getContext("2d", { willReadFrequently: true });
   if (!lowCtx) throw new Error("Context");
+  lowCtx.imageSmoothingEnabled = true;
   lowCtx.drawImage(canvas, 0, 0, downW, downH);
   const imgData = lowCtx.getImageData(0, 0, downW, downH);
   for (let i = 3; i < imgData.data.length; i += 4) if (imgData.data[i] < 50) imgData.data[i] = 0;
@@ -245,18 +271,20 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
     for (let i = 0; i < w * h; i++) { const id = compIdMap[i]; if (id > 0 && !validIds.has(id)) data[i * 4 + 3] = 0; }
   }
   lowCtx.putImageData(imgData, 0, 0);
-  const maskCanvas = document.createElement("canvas");
-  maskCanvas.width = img.width; maskCanvas.height = img.height;
-  const maskCtx = maskCanvas.getContext("2d")!;
-  maskCtx.drawImage(lowCanvas, 0, 0, img.width, img.height);
+  // refine mask at low res back to full
+  const lowMaskFull = document.createElement("canvas");
+  lowMaskFull.width = canvas.width; lowMaskFull.height = canvas.height;
+  const lmfCtx = lowMaskFull.getContext("2d")!;
+  lmfCtx.imageSmoothingEnabled = true;
+  lmfCtx.drawImage(lowCanvas, 0, 0, lowMaskFull.width, lowMaskFull.height);
   ctx.globalCompositeOperation = "destination-in";
-  ctx.drawImage(maskCanvas, 0, 0);
+  ctx.drawImage(lowMaskFull, 0, 0);
   ctx.globalCompositeOperation = "source-over";
   const boxes = getObjectsBoundingBoxes(lowCanvas).map(b => ({ x: b.x / scale, y: b.y / scale, width: b.width / scale, height: b.height / scale, centerX: b.centerX / scale }));
-  let finalBbox = { x: 0, y: 0, width: img.width, height: img.height };
+  let finalBbox = { x: 0, y: 0, width: canvas.width, height: canvas.height };
   let duplicateMode = false;
   if (boxes.length > 0) {
-    const imgCenterX = img.width / 2;
+    const imgCenterX = canvas.width / 2;
     if (category === "Earrings") {
       let bestBox = boxes[0]; let minDiff = Math.abs(boxes[0].centerX - imgCenterX);
       for (let i = 1; i < boxes.length; i++) { const diff = Math.abs(boxes[i].centerX - imgCenterX); if (diff < minDiff) { minDiff = diff; bestBox = boxes[i]; } }
@@ -274,16 +302,22 @@ export async function loadAndProcessImage(asBlob: Blob, category: string | null 
     const gap = Math.floor(finalBbox.width * 0.5);
     finalCanvas.width = finalBbox.width * 2 + gap; finalCanvas.height = finalBbox.height;
     const fCtx = finalCanvas.getContext("2d")!;
+    fCtx.imageSmoothingEnabled = true;
+    // @ts-ignore
+    if (fCtx.imageSmoothingQuality) fCtx.imageSmoothingQuality = "high";
     fCtx.drawImage(canvas, finalBbox.x, finalBbox.y, finalBbox.width, finalBbox.height, 0, 0, finalBbox.width, finalBbox.height);
     fCtx.drawImage(canvas, finalBbox.x, finalBbox.y, finalBbox.width, finalBbox.height, finalBbox.width + gap, 0, finalBbox.width, finalBbox.height);
     finalBbox.width = finalCanvas.width; finalBbox.x = 0; finalBbox.y = 0;
   } else {
     finalCanvas.width = finalBbox.width; finalCanvas.height = finalBbox.height;
     const fCtx = finalCanvas.getContext("2d")!;
+    fCtx.imageSmoothingEnabled = true;
+    // @ts-ignore
+    if (fCtx.imageSmoothingQuality) fCtx.imageSmoothingQuality = "high";
     fCtx.drawImage(canvas, finalBbox.x, finalBbox.y, finalBbox.width, finalBbox.height, 0, 0, finalBbox.width, finalBbox.height);
   }
   URL.revokeObjectURL(bgRemovedUrl);
-  return { canvas: finalCanvas, bbox: finalBbox, originalWidth: img.width, originalHeight: img.height };
+  return { canvas: finalCanvas, bbox: finalBbox, originalWidth: canvas.width, originalHeight: canvas.height };
 }
 
 export function getFastBoundingBox(img: HTMLImageElement | HTMLCanvasElement) {
