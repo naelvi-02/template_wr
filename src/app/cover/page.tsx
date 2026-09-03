@@ -60,13 +60,15 @@ interface CoverResult { folderName: string; index: number; url: string; blob: Bl
 const AI_CATEGORIES = ["Ring","Necklace","Earrings","Bracelet","Brooch","Pendant"];
 
 const Slider = React.memo(function Slider({ label, icon: Icon, value, min, max, step, onChange, unit="" }: any) {
+  const [draft, setDraft] = React.useState(String(value));
+  React.useEffect(()=>{ setDraft(String(value)); },[value]);
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-xs font-semibold text-[#1A1A2E]"><Icon size={12} />{label}</span>
-        <span className="text-xs font-bold text-[#E53E3E]">{value}{unit}</span>
+        <input type="number" min={min} max={max} step={step} value={draft} onChange={(e)=>setDraft(e.target.value)} onBlur={()=>{ let n=Number(draft); if(isNaN(n)) n=value; n=Math.min(max,Math.max(min,n)); setDraft(String(n)); onChange(n); }} onKeyDown={(e:any)=>{ if(e.key==="Enter"){ let n=Number(draft); if(!isNaN(n)){ n=Math.min(max,Math.max(min,n)); onChange(n); (e.target as HTMLInputElement).blur(); }}}} className="w-20 text-right text-xs font-bold text-[#E53E3E] bg-white border border-[#E53E3E]/20 rounded-md px-1.5 py-0.5 outline-none focus:border-[#E53E3E]" />{unit? <span className="text-[10px] text-[#8A8A9E] ml-1">{unit}</span>:null}
       </div>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e)=>onChange(Number(e.target.value))} className="w-full accent-[#E53E3E] h-1" />
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e)=>{ const n=Number(e.target.value); setDraft(String(n)); onChange(n); }} className="w-full accent-[#E53E3E] h-1" />
     </div>
   );
 });
@@ -367,8 +369,9 @@ export default function CoverPage(){
       const currentX=overrideX!==undefined?overrideX:0;
       const currentY=overrideY!==undefined?overrideY:0;
       const isNecklace=target.category==="Necklace";
-      const safeW=logicalW*(isNecklace?0.85:0.7);
-      const safeH=logicalH*(isNecklace?0.85:0.7);
+      const isRantaiLike = (kategoriKinds.get(target.folderName||"")?.kind==="single") || isRantaiFolder(target.folderName||"");
+      const safeW=logicalW*(isNecklace?0.85:(isRantaiLike?0.82:0.7));
+      const safeH=logicalH*(isNecklace?0.85:(isRantaiLike?0.65:0.7)); // rantai: lebih lebar, lebih pendek biar tidak kepotong atas-bawah
       const scaleFactor=Math.min(safeW/mainBbox.width, safeH/mainBbox.height)*currentScale;
       const drawW=mainBbox.width*scaleFactor;
       const drawH=mainBbox.height*scaleFactor;
