@@ -307,7 +307,16 @@ export default function CoverPage(){
       ctx.drawImage(mainCropped,cx,cy,drawW,drawH);
       ctx.restore();
 
-      // Find txt item for berat/size
+      // Folder-level kadar/nampan from txt (always override if folder has txt), item-level berat/size via txtItem match
+      let karatText=target.karat;
+      let nampanText=target.mp;
+      if(target.folderName){
+        const d=etalaseDetails.get(target.folderName);
+        if(d){
+          if(d.karat) karatText=d.karat;
+          if(d.nampan) nampanText=d.nampan;
+        }
+      }
       let txtItem:any=null;
       if(target.folderName){
         const detail=etalaseDetails.get(target.folderName)||null;
@@ -315,24 +324,12 @@ export default function CoverPage(){
           const key=normalizeFileKey(target.baseName);
           txtItem=detail.items.get(key)||null;
           if(!txtItem){
-            // fallback try code match
             for(const v of detail.items.values()){
               if(normalizeFileKey(v.code)===key || normalizeFileKey(v.fileName).includes(key) || key.includes(normalizeFileKey(v.code))){
                 txtItem=v; break;
               }
             }
           }
-        }
-      }
-
-      // Texts: nampan & karat from txt if exists else file mp/karat
-      let karatText=target.karat;
-      let nampanText=target.mp;
-      if(txtItem && target.folderName){
-        const d=etalaseDetails.get(target.folderName);
-        if(d){
-          if(d.karat) karatText=d.karat;
-          if(d.nampan) nampanText=d.nampan;
         }
       }
 
