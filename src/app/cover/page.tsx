@@ -188,6 +188,8 @@ export default function CoverPage(){
         const folderName = parts.length>1 ? parts[parts.length-2] : (txtFile.name.replace(/\.txt$/i,""));
         txtFile.text().then((content:string)=>{
           const detail = parseDetailsTxt(content);
+          // live update files karat/mp so list does not stay 16K MP16
+          setFiles(prev=> prev.map(f=> f.folderName===folderName ? {...f, karat: detail.karat||f.karat, mp: detail.nampan||f.mp} : f));
           setEtalaseDetails(prev=>{
             const next=new Map(prev);
             next.set(folderName, detail);
@@ -266,7 +268,11 @@ export default function CoverPage(){
           const entry=newEntries[i++];
           try{
             let category=entry.category;
-            if(!category){
+            // RANTAI folder -> force Bracelet/Necklace regardless of AI (fixes Ring bug)
+            if(entry.folderName && entry.folderName.toUpperCase().includes("RANTAI")){
+              const up=entry.folderName.toUpperCase();
+              category = up.includes("KALUNG") ? "Necklace" : "Bracelet";
+            } else if(!category){
               const base64=await compressImageForAI(entry.file);
               const prompt="LIHAT REFERENSI: ANTING GANTUNG/TUSUK=anting, CINCIN=cincin bulat kecil, GELANG BANGLE=gelang kaku tebal, GELANG RANTAI=rantai banyak sambung memanjang di tray, LIONTIN=liontin. Klasifikasi KE SATU KATA: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. Jika BANYAK GELANG BERJEJER MEMANJANG=Bracelet rantai. Jawab HANYA satu kata.";
               const response=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt, imageBase64:base64, visionUrl:"https://9router.naelvi.com/v1", visionKey:"sk-9router-naelvi-master", visionModel:"ag/gemini-3.7-flash-medium"})});
