@@ -27,12 +27,14 @@ export interface CoverRenderOptions {
  * - kind "single": 1 foto (canvas bbox) digambar besar di tengah
  * Kadar & nampan dari txt (atau fallback dari item pertama / override).
  */
+let _reuseCanvas: HTMLCanvasElement | null = null;
 export async function renderCoverBlob(opts: CoverRenderOptions): Promise<Blob | null> {
   const { templateImg, items, detail, folderName } = opts;
   const W = templateImg.width;
   const H = templateImg.height;
 
-  const canvas = document.createElement("canvas");
+  const canvas = _reuseCanvas ?? document.createElement("canvas");
+  _reuseCanvas = canvas;
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d");
@@ -44,21 +46,26 @@ export async function renderCoverBlob(opts: CoverRenderOptions): Promise<Blob | 
   ctx.drawImage(templateImg, 0, 0);
 
   const cells = getGridCells(items.length);
+  // uniform min-scale: all items same scale so visual equal
+  const scales = items.map((it,i)=>{ const cl=cells[Math.min(i,cells.length-1)]; const bw=it.bbox?.width||it.canvas.width; const bh=it.bbox?.height||it.canvas.height; return Math.min(cl.w/bw, cl.h/bh); });
+  let uniform = scales.length ? Math.min(...scales) : 1;
+  // clamp: avoid tiny uniform if one outlier super small
+  const maxS = scales.length ? Math.max(...scales) : uniform;
+  if(uniform < 0.3*maxS) uniform = 0.3*maxS;
 
   items.forEach((item, i) => {
     const cell = cells[Math.min(i, cells.length - 1)];
     const bw = item.bbox?.width || item.canvas.width;
     const bh = item.bbox?.height || item.canvas.height;
-    const scale = Math.min(cell.w / bw, cell.h / bh);
-    const dw = bw * scale;
-    const dh = bh * scale;
+    const dw = bw * uniform;
+    const dh = bh * uniform;
     const dx = cell.cx - dw / 2;
     const dy = cell.cy - dh / 2;
 
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.1)";
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 6;
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 4;
     ctx.drawImage(item.canvas, dx, dy, dw, dh);
     ctx.restore();
   });

@@ -62,15 +62,15 @@ export function getGridCells(count: number): CellRect[] {
 
   const cells: CellRect[] = [];
   const make = (cols: number, rows: number) => {
-    const cw = areaW / cols;
+    const cw = areaW / cols; // tuned 0.86->0.82 for uniform spacing
     const ch = areaH / rows;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         cells.push({
           cx: left + cw * c + cw / 2,
           cy: top + ch * r + ch / 2,
-          w: cw * 0.86,
-          h: ch * 0.86,
+          w: cw * 0.82,
+          h: ch * 0.82,
         });
       }
     }

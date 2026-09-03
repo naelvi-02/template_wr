@@ -11,6 +11,8 @@ import { parseFilename, loadAndProcessImage, calculateAutoLighting, preloadBgMod
 import { parseDetailsTxt, normalizeFileKey } from "@/lib/coverParser";
 import type { EtalaseDetail } from "@/lib/coverParser";
 import { detectCoverKind, chunkIntoCovers } from "@/lib/coverLayout";
+import { detectKindByVision } from "@/lib/coverKindVision";
+import type { CoverKind } from "@/lib/coverLayout";
 import { renderCoverBlob } from "@/lib/coverComposer";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
@@ -91,6 +93,8 @@ export default function CoverPage(){
 
   const [etalaseDetails, setEtalaseDetails] = useState<Map<string,EtalaseDetail>>(new Map());
   const [coverResults, setCoverResults] = useState<CoverResult[]>([]);
+  const [mainHandle, setMainHandle] = useState<any>(null);
+  const [kategoriKinds, setKategoriKinds] = useState<Map<string,{kind:CoverKind,by:string}>>(new Map());
   const [coverGenerating, setCoverGenerating] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -103,6 +107,50 @@ export default function CoverPage(){
 
   const activeFile = files.find(f=>f.id===activeId) ?? null;
 
+  const handleOpenMainFolder = async ()=>{
+    try{
+      if(!("showDirectoryPicker" in window)){ folderInputRef.current?.click(); return; }
+      const h:any = await (window as any).showDirectoryPicker({mode:"readwrite"});
+      setMainHandle(h);
+      // enumerate subfolders
+      const groups: Map<string, File[]> = new Map();
+      const txts: Map<string, File> = new Map();
+      for await (const [name, entry] of h.entries()){
+        if(entry.kind==="directory"){
+          const sub:any = entry;
+          for await (const [fname, fentry] of sub.entries()){
+            if(fentry.kind==="file"){
+              const file:File = await (fentry as any).getFile();
+              Object.defineProperty(file,"webkitRelativePath",{value: name+"/"+file.name, writable:false});
+              if(/\.txt$/i.test(file.name)) txts.set(name, file);
+              else if(file.type.startsWith("image/")){ if(!groups.has(name)) groups.set(name,[]); groups.get(name)!.push(file); }
+            }
+          }
+        }
+      }
+      const allFiles: File[] = [];
+      txts.forEach(f=> allFiles.push(f));
+      groups.forEach(arr=> arr.forEach(f=> allFiles.push(f)));
+      // also catch root txt/photos
+      processFiles(allFiles);
+      // vision per kategori parallel 2
+      const folderNames = Array.from(groups.keys());
+      let idx=0;
+      const worker = async()=>{
+        while(idx < folderNames.length){
+          const fn = folderNames[idx++];
+          const sample = groups.get(fn)?.[0];
+          if(!sample) continue;
+          const res = await detectKindByVision(sample, fn);
+          setKategoriKinds(prev=>{ const n=new Map(prev); n.set(fn,{kind:res.kind,by:res.by}); return n; });
+        }
+      };
+      const ws = [worker(), worker()];
+      await Promise.all(ws);
+    }catch(e:any){
+      if(e?.name!=="AbortError") console.error(e);
+    }
+  };
   const handleDrop = async (e: React.DragEvent) =>{
     e.preventDefault(); setIsDragging(false);
     const items = e.dataTransfer.items;
@@ -572,6 +620,29 @@ export default function CoverPage(){
     }
   };
 
+  const exportOverwrite = async ()=>{
+    if(!mainHandle){ alert("Buka Main Folder via tombol Buka Main Folder dulu untuk overwrite. Fallback ZIP."); downloadCoverZip(); return; }
+    if(coverResults.length===0 && !files.some(f=>f.status==="done"&&f.resultBlob)){ alert("Belum ada hasil."); return; }
+    try{
+      let ok=0, fail=0;
+      const done = files.filter(f=>f.status==="done" && f.resultBlob);
+      const byFolder = new Map<string, typeof done>();
+      done.forEach(f=>{ const k=f.folderName||"Tanpa Folder"; if(!byFolder.has(k)) byFolder.set(k,[]); byFolder.get(k)!.push(f); });
+      for(const [folder, arr] of byFolder.entries()){
+        let dir:any = mainHandle;
+        const seg = folder.split("/").pop()||folder;
+        if(folder && folder!=="Tanpa Folder"){ try{ dir = await mainHandle.getDirectoryHandle(seg); }catch{ try{ dir = await mainHandle.getDirectoryHandle(folder);}catch{} } }
+        for(const f of arr){ try{ const fh:any = await dir.getFileHandle(f.name,{create:true}); const w:any = await fh.createWritable(); await w.write(f.resultBlob!); await w.close(); ok++; }catch{ fail++; } }
+      }
+      for(const c of coverResults){
+        let dir:any = mainHandle;
+        const seg = (c.folderName||"").split("/").pop()||c.folderName;
+        if(seg) try{ dir = await mainHandle.getDirectoryHandle(seg); }catch{}
+        try{ const fh:any = await dir.getFileHandle(c.fileName,{create:true}); const w:any = await fh.createWritable(); await w.write(c.blob); await w.close(); ok++; }catch{ fail++; }
+      }
+      alert(`Overwrite selesai: ${ok} berhasil, ${fail} gagal.`);
+    }catch(e:any){ console.error(e); alert("Gagal: "+e.message); }
+  };
   const downloadCoverZip = async ()=>{
     if(coverResults.length===0) return;
     const zip=new JSZip();
@@ -628,7 +699,7 @@ webkitdirectory="" directory="" className="hidden" onChange={(e)=>e.target.files
                 <div><p className="text-sm font-semibold text-[#1A1A2E]">{isDragging?"Lepaskan file di sini":"Drag & drop folder kategori (foto + .txt)"}</p><p className="text-xs text-[#8A8A9E] mt-0.5">Pilih folder, sistem baca .txt otomatis (kadar, nampan, berat, size)</p></div>
                 <div className="flex items-center gap-3">
                   <button onClick={()=>fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-[#E53E3E] transition-all hover:opacity-80" style={{background:"rgba(229,62,62,0.08)",border:"1px solid rgba(229,62,62,0.2)"}}><ImageIcon size={14} strokeWidth={2.2} /> Pilih File</button>
-                  <button onClick={()=>folderInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-[#1A1A2E] transition-all hover:text-[#E53E3E] hover:bg-[#FFF0F0]" style={{background:"rgba(0,0,0,0.04)",border:"1px solid rgba(0,0,0,0.08)"}}><FolderOpen size={14} strokeWidth={2.2} /> Pilih Folder</button>
+                  <button onClick={handleOpenMainFolder} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white" style={{background:"linear-gradient(135deg, #1A1A2E 0%, #3A3A5E 100%)"}}><FolderOpen size={14}/> Buka Main Folder (Overwrite)</button><button onClick={()=>folderInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-[#1A1A2E] transition-all hover:text-[#E53E3E] hover:bg-[#FFF0F0]" style={{background:"rgba(0,0,0,0.04)",border:"1px solid rgba(0,0,0,0.08)"}}><FolderOpen size={14} strokeWidth={2.2} /> Pilih Folder</button>
                 </div>
               </div>
               {files.length>0 && (
@@ -666,7 +737,7 @@ webkitdirectory="" directory="" className="hidden" onChange={(e)=>e.target.files
                     <p className="text-xs font-semibold text-[#1A1A2E]">{doneFiles.length} varian selesai — siap bikin cover</p>
                     <button onClick={handleGenerateCovers} disabled={coverGenerating} className="flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-50" style={{background:"linear-gradient(135deg, #1A1A2E 0%, #3A3A5E 100%)",boxShadow:"0 4px 16px rgba(26,26,46,0.2)"}}>{coverGenerating?<><Cpu size={14} className="animate-spin"/> Membuat Cover...</>:<><Layers size={14}/> Generate {doneFiles.length} Cover Collage</>}</button>
                     {coverResults.length>0 && <div className="grid grid-cols-3 gap-2 mt-2">{coverResults.map(c=><div key={c.fileName} className="rounded-xl overflow-hidden border bg-white" style={{borderColor:"rgba(0,0,0,0.08)"}}><img src={c.url} alt={c.fileName} className="w-full aspect-square object-cover" /><div className="px-2 py-1.5"><p className="text-[10px] font-bold text-[#1A1A2E] truncate">{c.fileName}</p><p className="text-[9px] text-[#8A8A9E]">{c.folderName} • {c.kind}</p></div></div>)}</div>}
-                    {coverResults.length>0 && <div className="flex gap-2 mt-2"><button onClick={downloadCoverZip} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold text-[#E53E3E]" style={{background:"rgba(229,62,62,0.08)",border:"1px solid rgba(229,62,62,0.15)"}}><Archive size={13}/> Download ZIP (varian+cover)</button><button onClick={exportCoversToFolder} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold text-white" style={{background:"linear-gradient(135deg, #E53E3E 0%, #FC8181 100%)"}}><FolderDown size={13}/> Simpan Cover ke Folder</button></div>}
+                    {coverResults.length>0 && <div className="flex gap-2 mt-2"><button onClick={exportOverwrite} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold text-[#E53E3E]" style={{background:"rgba(229,62,62,0.08)",border:"1px solid rgba(229,62,62,0.15)"}}><Archive size={13}/> Download ZIP (varian+cover)</button><button onClick={downloadCoverZip} className="px-4 py-2.5 rounded-xl text-xs font-bold bg-white border">ZIP</button><button onClick={exportCoversToFolder} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold text-white" style={{background:"linear-gradient(135deg, #E53E3E 0%, #FC8181 100%)"}}><FolderDown size={13}/> Simpan Cover ke Folder</button></div>}
                   </div>
                 )}
               </div>
