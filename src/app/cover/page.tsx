@@ -107,6 +107,20 @@ export default function CoverPage(){
 
   const activeFile = files.find(f=>f.id===activeId) ?? null;
 
+    const folderToCatKind = (folder:string): {cat:string;kind:string}|null => {
+    const up=(folder||"").toUpperCase();
+    if(up.includes("RANTAI")) return {cat: up.includes("KALUNG")?"Necklace":"Bracelet", kind:"single"};
+    if(up.includes("BANGLE")||up.includes("BELAH")||up.includes("EXTENSION")) return {cat:"Bracelet", kind:"grid4"};
+    if(up.includes("CINCIN")||up.includes("RING")) return {cat:"Ring", kind:"grid6"};
+    if(up.includes("ANTING TUSUK")||up.includes("TUSUK")) return {cat:"Earrings", kind:"grid6"};
+    if(up.includes("ANTING GANTUNG")||up.includes("GANTUNG")) return {cat:"Earrings", kind:"grid6"};
+    if(up.includes("ANTING")) return {cat:"Earrings", kind:"grid6"};
+    if(up.includes("LIONTIN")||up.includes("PENDANT")) return {cat:"Pendant", kind:"grid6"};
+    if(up.includes("KALUNG")) return {cat:"Necklace", kind:"single"};
+    if(up.includes("GELANG")) return {cat:"Bracelet", kind:"grid4"};
+    if(up.includes("BROS")||up.includes("BROOCH")) return {cat:"Brooch", kind:"grid6"};
+    return null;
+  };
   const handleOpenMainFolder = async ()=>{
     try{
       if(!("showDirectoryPicker" in window)){ folderInputRef.current?.click(); return; }
@@ -145,6 +159,11 @@ export default function CoverPage(){
           setKategoriKinds(prev=>{ const n=new Map(prev); n.set(fn,{kind:res.kind,by:res.by}); return n; });
         }
       };
+      // also auto-set kategoriKinds from folder name map for immediate correct cover kind, vision as override only if needed
+      folderNames.forEach(fn=>{
+        const m=folderToCatKind(fn);
+        if(m) setKategoriKinds(prev=>{ const n=new Map(prev); if(!n.has(fn)) n.set(fn,{kind:m.kind as any, by:'keyword'}); return n; });
+      });
       const ws = [worker(), worker()];
       await Promise.all(ws);
     }catch(e:any){
@@ -259,7 +278,8 @@ export default function CoverPage(){
       reader.onerror=reject;
       reader.readAsDataURL(file);
     });
-    const processQueue=async()=>{
+
+  const processQueue=async()=>{
         const hw = (typeof navigator !== "undefined" && (navigator as any).hardwareConcurrency) || 4;
   const maxConcurrency = Math.min(3, Math.max(1, Math.floor(hw/4)+1));
       let i=0;
@@ -268,11 +288,8 @@ export default function CoverPage(){
           const entry=newEntries[i++];
           try{
             let category=entry.category;
-            // RANTAI folder -> force Bracelet/Necklace regardless of AI (fixes Ring bug)
-            if(entry.folderName && entry.folderName.toUpperCase().includes("RANTAI")){
-              const up=entry.folderName.toUpperCase();
-              category = up.includes("KALUNG") ? "Necklace" : "Bracelet";
-            } else if(!category){
+            const mapped = folderToCatKind(entry.folderName||"");
+            if(mapped){ category = mapped.cat; } else if(!category){
               const base64=await compressImageForAI(entry.file);
               const prompt="LIHAT REFERENSI: ANTING GANTUNG/TUSUK=anting, CINCIN=cincin bulat kecil, GELANG BANGLE=gelang kaku tebal, GELANG RANTAI=rantai banyak sambung memanjang di tray, LIONTIN=liontin. Klasifikasi KE SATU KATA: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. Jika BANYAK GELANG BERJEJER MEMANJANG=Bracelet rantai. Jawab HANYA satu kata.";
               const response=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt, imageBase64:base64, visionUrl:"https://9router.naelvi.com/v1", visionKey:"sk-9router-naelvi-master", visionModel:"ag/gemini-3.7-flash-medium"})});
