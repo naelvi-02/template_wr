@@ -6,19 +6,36 @@ export async function POST(req: Request) {
     if (visionUrl && visionKey) {
       const model = visionModel || "ag/gemini-3.7-flash-medium";
       const base = visionUrl.replace(/\/$/, "");
-      const res = await fetch(`${base}/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${visionKey}` },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: "user", content: [ { type: "text", text: prompt }, ...(imageBase64 ? [{ type: "image_url", image_url: { url: imageBase64 } }] : []) ] }],
-          temperature: 0.1, max_tokens: 256,
-        }),
-      });
-      const text = await res.text();
-      if (!res.ok) return NextResponse.json({ error: "9router error", details: text }, { status: res.status });
-      const data = JSON.parse(text);
-      return NextResponse.json({ success: true, message: data.choices?.[0]?.message?.content || "" });
+      let data: any = null;
+      try {
+        const res = await fetch(`${base}/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${visionKey}` },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: [ { type: "text", text: prompt }, ...(imageBase64 ? [{ type: "image_url", image_url: { url: imageBase64 } }] : []) ] }],
+            temperature: 0.1, max_tokens: 256,
+            stream: false,
+          }),
+        });
+        const text = await res.text();
+        if (res.ok) {
+          try {
+            data = JSON.parse(text);
+          } catch {
+            const match = text.match(/"content":"([^"]+)"/);
+            if (match && match[1]) data = { choices: [{ message: { content: match[1] } }] };
+          }
+        } else {
+          console.warn("9router error status:", res.status, text);
+        }
+      } catch (err: any) {
+        console.warn("9router fetch failed:", err?.message);
+      }
+      if (data?.choices?.[0]?.message?.content) {
+        return NextResponse.json({ success: true, message: data.choices[0].message.content });
+      }
+      // If 9router returned empty or failed, seamlessly fall through to Groq fallback below
     }
     const FALLBACK_KEYS = [process.env.GROQ_API_KEY,process.env.GROQ_API_KEY_2,process.env.GROQ_API_KEY_3].filter(Boolean) as string[];
     if (FALLBACK_KEYS.length === 0) return NextResponse.json({ error: "No Groq API keys configured" }, { status: 500 });

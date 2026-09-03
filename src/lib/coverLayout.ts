@@ -11,8 +11,9 @@ export interface CoverGroup {
 /** Deteksi jenis cover dari nama folder kategori */
 export function detectCoverKind(folderName: string): CoverKind {
   const n = folderName.toUpperCase();
-  if (n.includes("GELANG RANTAI") || n.includes("KALUNG RANTAI")) return "single";
-  if (n.includes("GELANG BANGLE") || n.includes("BANGLE")) return "grid4";
+  if (n.includes("RANTAI") || n.includes("EXTENSION") || n.includes("BELAH")) return "single";
+  if (n.includes("BANGLE") || n.includes("GELANG PLAT") || n.includes("GELANG KAKI")) return "grid4";
+  if (n.includes("GELANG")) return "grid4";
   return "grid6"; // default: cincin, anting, liontin
 }
 

@@ -109,21 +109,33 @@ export default function CoverPage(){
 
   const activeFile = files.find(f=>f.id===activeId) ?? null;
 
-    const folderToCatKind = (folder:string): {cat:string;kind:string}|null => {
+    const folderToCatKind = (folder:string): {cat:string;kind:string|null}|null => {
     const up=(folder||"").toUpperCase();
-    // Only unambiguous names bypass vision. GELANG extensions (BELAH/EXTENSION/RANTAI generik) MUST go via vision.
-    // GELANG RANTAI explisit -> single. GELANG BANGLE eksplisit -> grid4.
-    if(up.includes("GELANG RANTAI")) return {cat: up.includes("KALUNG")?"Necklace":"Bracelet", kind:"single"};
-    if(up.includes("KALUNG RANTAI")) return {cat:"Necklace", kind:"single"};
-    if(up.includes("GELANG BANGLE")) return {cat:"Bracelet", kind:"grid4"};
-    if(up.includes("CINCIN")||(up.includes("RING")&&!up.includes("RANTAI"))) return {cat:"Ring", kind:"grid6"};
-    if(up.includes("ANTING TUSUK")) return {cat:"Earrings", kind:"grid6"};
-    if(up.includes("ANTING GANTUNG")) return {cat:"Earrings", kind:"grid6"};
-    if(up.includes("LIONTIN")||up.includes("PENDANT")) return {cat:"Pendant", kind:"grid6"};
-    if(up.includes("KALUNG RANTAI")||up.includes("KALUNG BELAH")||up.includes("KALUNG EXTENSION")) return null; // vision decides
-    if(up.includes("BROS")||up.includes("BROOCH")) return {cat:"Brooch", kind:"grid6"};
-    // GELANG EXTENSION / BELAH TENGAH / generic GELANG -> return null so vision decides Bracelet single vs grid4
-    return null;
+    let cat = "Ring";
+    let kind: string | null = null;
+    if(up.includes("GELANG")){
+      cat = "Bracelet";
+      if(up.includes("RANTAI") || up.includes("EXTENSION") || up.includes("BELAH")) kind = "single";
+      else if(up.includes("BANGLE") || up.includes("PLAT") || up.includes("KAKI")) kind = "grid4";
+    } else if(up.includes("KALUNG")){
+      cat = "Necklace";
+      if(up.includes("RANTAI")) kind = "single";
+    } else if(up.includes("ANTING")){
+      cat = "Earrings";
+      if(up.includes("TUSUK") || up.includes("GANTUNG")) kind = "grid6";
+    } else if(up.includes("CINCIN") || up.includes("RING")){
+      cat = "Ring";
+      kind = "grid6";
+    } else if(up.includes("LIONTIN") || up.includes("PENDANT")){
+      cat = "Pendant";
+      kind = "grid6";
+    } else if(up.includes("BROS") || up.includes("BROOCH")){
+      cat = "Brooch";
+      kind = "grid6";
+    } else {
+      return null;
+    }
+    return { cat, kind };
   };
   const handleOpenMainFolder = async ()=>{
     try{
@@ -293,11 +305,11 @@ export default function CoverPage(){
           try{
             let category=entry.category;
             const mapped = folderToCatKind(entry.folderName||"");
-            if(mapped){ category = mapped.cat; } else if(!category){
+            if(mapped){ category = mapped.cat; }
+            if(!category){
               const base64=await compressImageForAI(entry.file);
               const prompt="LIHAT REFERENSI: ANTING GANTUNG/TUSUK=anting, CINCIN=cincin bulat kecil, GELANG BANGLE=gelang kaku tebal, GELANG RANTAI=rantai banyak sambung memanjang di tray, LIONTIN=liontin. Klasifikasi KE SATU KATA: Ring, Necklace, Earrings, Bracelet, Brooch, Pendant. GELANG EXTENSION / BELAH TENGAH yang fotonya berisi 3-5 gelang memanjang berjejer di tray adalah GELANG RANTAI = Bracelet (BUKAN grid4). Jika BANYAK GELANG BERJEJER MEMANJANG=Bracelet rantai. Jawab HANYA satu kata.";
               const response=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt, imageBase64:base64, visionUrl:"https://9router.naelvi.com/v1", visionKey:"sk-9router-naelvi-master", visionModel:"ag/gemini-3.7-flash-medium"})});
-              category="Ring";
               if(response.ok){
                 const data=await response.json();
                 const reply=data.message?.trim()||"";
@@ -306,9 +318,25 @@ export default function CoverPage(){
                 if(matched) category=matched;
               }
             }
+            if(!category){
+              const fnUp = (entry.folderName||"").toUpperCase();
+              if(fnUp.includes("GELANG")) category="Bracelet";
+              else if(fnUp.includes("KALUNG")) category="Necklace";
+              else if(fnUp.includes("ANTING")) category="Earrings";
+              else if(fnUp.includes("LIONTIN")||fnUp.includes("PENDANT")) category="Pendant";
+              else if(fnUp.includes("BROS")||fnUp.includes("BROOCH")) category="Brooch";
+              else category="Ring";
+            }
             setFiles(prev=>prev.map(f=>f.id===entry.id?{...f, category, detecting:false}:f));
           }catch(e){
-            setFiles(prev=>prev.map(f=>f.id===entry.id?{...f, category:"Ring", detecting:false}:f));
+            const fnUp = (entry.folderName||"").toUpperCase();
+            let cat="Ring";
+            if(fnUp.includes("GELANG")) cat="Bracelet";
+            else if(fnUp.includes("KALUNG")) cat="Necklace";
+            else if(fnUp.includes("ANTING")) cat="Earrings";
+            else if(fnUp.includes("LIONTIN")||fnUp.includes("PENDANT")) cat="Pendant";
+            else if(fnUp.includes("BROS")||fnUp.includes("BROOCH")) cat="Brooch";
+            setFiles(prev=>prev.map(f=>f.id===entry.id?{...f, category:cat, detecting:false}:f));
           }
         }
       };
@@ -334,16 +362,18 @@ export default function CoverPage(){
     try{
       let mainCropped:HTMLCanvasElement;
       let mainBbox:any;
-      const cacheKey=target.id;
+      const cacheKey = (target as any)._rantaiBaseId || target.id;
       if(processCache.current.has(cacheKey)){
         const cached=processCache.current.get(cacheKey)!;
         mainCropped=cached.mainCropped;
         mainBbox=cached.mainBbox;
       } else {
-        const isRantaiTarget = isRantaiFolder(target.folderName||"") || kategoriKinds.get(target.folderName||"")?.kind==="single";
+        const isRantaiTarget = isRantaiFolder(target.folderName||"") ||
+          kategoriKinds.get(target.folderName||"")?.kind==="single" ||
+          (target as any).rantaiIndex !== undefined;
         const keepTray = isRantaiTarget;
         let effCategory = target.category;
-        if(isRantaiFolder(target.folderName||"")){
+        if(isRantaiTarget){
           const up=(target.folderName||"").toUpperCase();
           if(up.includes("KALUNG")) effCategory="Necklace"; else effCategory="Bracelet";
         }
@@ -434,12 +464,19 @@ export default function CoverPage(){
       if(target.folderName){
         const detail=etalaseDetails.get(target.folderName)||null;
         if(detail){
-          const key=normalizeFileKey(target.baseName);
-          txtItem=detail.items.get(key)||null;
+          const rIdx = (target as any).rantaiIndex;
+          if(rIdx !== undefined && rIdx >= 0){
+            const itemsArr = Array.from(detail.items.values());
+            if(itemsArr[rIdx]) txtItem = itemsArr[rIdx];
+          }
           if(!txtItem){
-            for(const v of detail.items.values()){
-              if(normalizeFileKey(v.code)===key || normalizeFileKey(v.fileName).includes(key) || key.includes(normalizeFileKey(v.code))){
-                txtItem=v; break;
+            const key=normalizeFileKey(target.baseName);
+            txtItem=detail.items.get(key)||null;
+            if(!txtItem){
+              for(const v of detail.items.values()){
+                if(normalizeFileKey(v.code)===key || normalizeFileKey(v.fileName).includes(key) || key.includes(normalizeFileKey(v.code))){
+                  txtItem=v; break;
+                }
               }
             }
           }
@@ -510,30 +547,60 @@ export default function CoverPage(){
     }
   };
 
-  const isRantaiFolder = (f: string)=> (f||"").toUpperCase().includes("RANTAI");
+  const isRantaiFolder = (f: string)=>{
+    const up=(f||"").toUpperCase();
+    return up.includes("RANTAI") || up.includes("EXTENSION") || up.includes("BELAH");
+  };
   const handleGenerate = async ()=>{
     if(generateState==="paused"){ pauseSignal.current=false; setGenerateState("generating"); return; }
-    // RANTAI: 1 foto -> N varian sesuai txt, highlight per perhiasan kiri->kanan
-    const baseTargets=files.filter(f=>!f.detecting && f.status!=="done");
-    let targets=[];
-    for(const f of baseTargets){
-      const isRantai = isRantaiFolder(f.folderName||"") || (kategoriKinds.get(f.folderName||"")?.kind==="single") || (f.category==="Bracelet" && (etalaseDetails.get(f.folderName||"")?.items.size||0)>1 && (f.folderName||"").toUpperCase().includes("GELANG"));
-      if(isRantai){
-        const det = etalaseDetails.get(f.folderName||"");
-        let n = det?.items.size || 0;
-        if(!n){
-          const txtNFallback = Array.from(etalaseDetails.values()).reduce((a,v)=> Math.max(a, v.items.size), 0);
-          if(txtNFallback>1) n=txtNFallback;
+    // 1 foto -> N varian jika rantai / extension / belah atau items txt > 1
+    let currentFiles = [...files];
+    let hasExpanded = false;
+    const expandedList: JewelryFile[] = [];
+
+    for(const f of currentFiles){
+      const isRantai = isRantaiFolder(f.folderName||"") ||
+        (kategoriKinds.get(f.folderName||"")?.kind==="single") ||
+        (f.category==="Bracelet" && (etalaseDetails.get(f.folderName||"")?.items.size||0)>1);
+      
+      const det = etalaseDetails.get(f.folderName||"");
+      let n = det?.items.size || 0;
+      if(!n && isRantai){
+        const txtNFallback = Array.from(etalaseDetails.values()).reduce((a,v)=> Math.max(a, v.items.size), 0);
+        if(txtNFallback>1) n=txtNFallback;
+      }
+      if(isRantai && n>1 && !f.id.includes("-rantai-")){
+        hasExpanded = true;
+        const ext = f.name.includes(".") ? f.name.slice(f.name.lastIndexOf(".")) : ".jpg";
+        const rawBase = f.name.replace(/\.[^/.]+$/, "");
+        for(let i=0; i<n; i++){
+          expandedList.push({
+            ...f,
+            id: `${f.id}-rantai-${i}`,
+            baseName: `${f.baseName} (${i+1}/${n})`,
+            name: `${rawBase}_${i+1}${ext}`,
+            status: "queued",
+            resultUrl: null,
+            resultBlob: undefined,
+            rantaiIndex: i,
+            rantaiTotal: n,
+            _rantaiBaseId: f.id,
+          } as any);
         }
-        if(!n) n=5;
-        console.log("[rantai expand]", f.folderName, "cat=", f.category, "kind=", kategoriKinds.get(f.folderName||"")?.kind, "det=", det?.items.size, "n=",n);
-        if(n<=1) targets.push(f);
-        else { for(let i=0;i<n;i++) targets.push({...f, id: f.id+"-rantai-"+i, rantaiIndex:i, rantaiTotal:n, baseName: f.baseName+" "+(i+1)+"/"+n, _rantaiBaseId: f.id} as any); }
-      } else targets.push(f);
+      } else {
+        expandedList.push(f);
+      }
     }
+
+    if(hasExpanded){
+      currentFiles = expandedList;
+      setFiles(expandedList);
+    }
+
+    const targets = currentFiles.filter(f=>!f.detecting && f.status!=="done");
     if(!targets.length || generating) return;
     setGenerating(true); setGenerateState("generating"); stopSignal.current=false; pauseSignal.current=false; setProgress(0); setProcessedCount(0); setEtaText(null); etaRef.current = Date.now();
-    setFiles(prev=>prev.map(f=>{ const isT = targets.find(t=>t.id===f.id || (t as any)._rantaiBaseId===f.id); return isT?{...f,status:"queued",resultUrl:null,exported:false}:f; }));
+    setFiles(prev=>prev.map(f=>{ const isT = targets.find(t=>t.id===f.id); return isT?{...f,status:"queued",resultUrl:null,exported:false}:f; }));
     let doneCount=0;
     const hw2 = (typeof navigator !== "undefined" && (navigator as any).hardwareConcurrency) || 4;
     const maxConcurrency = Math.min(3, Math.max(1, Math.floor(hw2/4)+1));
@@ -559,23 +626,7 @@ export default function CoverPage(){
         }
         if(stopSignal.current) break;
         const success=!!resultUrl;
-        const isRantaiT = (target as any)._rantaiBaseId;
-        if(isRantaiT){
-          if(success){
-            setFiles(prev=>{
-              const base = prev.find(x=>x.id===isRantaiT);
-              if(!base) return prev;
-              const exists = prev.find(x=>x.id===target.id);
-              if(exists) return prev.map(f=>f.id===target.id?{...f,status:"done",resultUrl: success?resultUrl:null,resultBlob: success?resultBlob:undefined,exported:false}:f);
-              const clone:any = {...base, id: target.id, resultUrl: resultUrl, resultBlob: resultBlob, status:"done", baseName: target.baseName, rantaiIndex:(target as any).rantaiIndex, rantaiTotal:(target as any).rantaiTotal};
-              return [...prev, clone];
-            });
-          } else {
-            setFiles(prev=>prev.map(f=>f.id===target.id?{...f,status:"error"}:f));
-          }
-        } else {
-          setFiles(prev=>prev.map(f=>f.id===target.id?{...f,status: success?"done":"error",resultUrl: success?resultUrl:null,resultBlob: success?resultBlob:undefined,exported:false}:f));
-        }
+        setFiles(prev=>prev.map(f=>f.id===target.id?{...f,status: success?"done":"error",resultUrl: success?resultUrl:null,resultBlob: success?resultBlob:undefined,exported:false}:f));
         doneCount++;
         setProgress(Math.round((doneCount/targets.length)*100));
         if(etaRef.current!=null && doneCount>0){
