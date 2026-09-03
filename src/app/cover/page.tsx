@@ -369,8 +369,7 @@ export default function CoverPage(){
         mainBbox=cached.mainBbox;
       } else {
         const isRantaiTarget = isRantaiFolder(target.folderName||"") ||
-          kategoriKinds.get(target.folderName||"")?.kind==="single" ||
-          (target as any).rantaiIndex !== undefined;
+          kategoriKinds.get(target.folderName||"")?.kind==="single";
         const keepTray = isRantaiTarget;
         let effCategory = target.category;
         if(isRantaiTarget){
@@ -400,9 +399,10 @@ export default function CoverPage(){
       const currentY=overrideY!==undefined?overrideY:0;
       const isNecklace=target.category==="Necklace";
       const isRantaiLike = (kategoriKinds.get(target.folderName||"")?.kind==="single") || isRantaiFolder(target.folderName||"");
-      const safeW=logicalW*(isNecklace?0.85:(isRantaiLike?0.82:0.7));
-      const safeH=logicalH*(isNecklace?0.85:(isRantaiLike?0.65:0.7)); // rantai: lebih lebar, lebih pendek biar tidak kepotong atas-bawah
-      const scaleFactor=Math.min(safeW/mainBbox.width, safeH/mainBbox.height)*currentScale;
+      const safeW=logicalW*(isNecklace?0.85:(isRantaiLike?0.88:0.7));
+      const safeH=logicalH*(isNecklace?0.85:(isRantaiLike?0.78:0.7));
+      const zoomBoost = isRantaiLike ? 1.35 : 1.0;
+      const scaleFactor=Math.min(safeW/mainBbox.width, safeH/mainBbox.height)*currentScale*zoomBoost;
       const drawW=mainBbox.width*scaleFactor;
       const drawH=mainBbox.height*scaleFactor;
       const cx=(logicalW/2)-(drawW/2)+currentX;
@@ -429,21 +429,24 @@ export default function CoverPage(){
       const rTot=(target as any).rantaiTotal;
 
       if(rIdx!==undefined && rTot && rTot > 1 && rIdx>=0){
-        // Bokeh Focus Effect: All other jewelry items blurred, only the active item is sharp in focus!
+        // High-Contrast Bokeh Focus Effect:
+        // Other items are strongly blurred (32px) + softly dimmed, while active item is 100% sharp & vibrant!
         const blurCanvas = document.createElement("canvas");
         blurCanvas.width = mainCropped.width;
         blurCanvas.height = mainCropped.height;
         const bCtx = blurCanvas.getContext("2d")!;
-        bCtx.filter = "blur(18px)";
+        bCtx.filter = "blur(32px)";
         bCtx.drawImage(mainCropped, 0, 0);
 
-        // 1. Draw blurred image over entire jewelry area
+        // 1. Draw blurred image over entire jewelry area with soft background dimming
         ctx.save();
         ctx.filter = filterStr;
         ctx.shadowColor = "rgba(0,0,0,0.1)";
         ctx.shadowBlur = isPreview ? 0 : 12;
         ctx.shadowOffsetY = 10;
         ctx.drawImage(blurCanvas, cx, cy, drawW, drawH);
+        ctx.fillStyle = "rgba(255,255,255,0.18)";
+        ctx.fillRect(cx, cy, drawW, drawH);
         ctx.restore();
 
         // 2. Reveal the active jewelry item in 100% sharp crisp focus
@@ -457,15 +460,15 @@ export default function CoverPage(){
         ctx.beginPath();
         const clipX = Math.max(cx, activeX);
         const clipW = Math.min(cx + drawW - clipX, activeW);
-        const clipY = cy - 10;
-        const clipH = drawH + 20;
+        const clipY = cy - 20;
+        const clipH = drawH + 40;
         if (typeof (ctx as any).roundRect === "function") {
           (ctx as any).roundRect(clipX, clipY, clipW, clipH, 16);
         } else {
           ctx.rect(clipX, clipY, clipW, clipH);
         }
         ctx.clip();
-        ctx.filter = filterStr;
+        ctx.filter = filterStr === "none" ? "brightness(1.05) contrast(1.08)" : `${filterStr} brightness(1.03) contrast(1.05)`;
         ctx.drawImage(mainCropped, cx, cy, drawW, drawH);
         ctx.restore();
       } else {
