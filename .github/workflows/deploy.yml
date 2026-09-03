@@ -18,6 +18,8 @@ jobs:
       env:
         ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
         ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+        NEXTAUTH_URL: https://wr.naelvi.com
       with:
         host: ${{ secrets.VPS_HOST }}
         username: ${{ secrets.VPS_USERNAME }}
@@ -25,7 +27,7 @@ jobs:
         key: ${{ secrets.VPS_KEY }}
         port: ${{ secrets.VPS_PORT }}
         command_timeout: 20m
-        envs: ADMIN_USERNAME,ADMIN_PASSWORD
+        envs: ADMIN_USERNAME,ADMIN_PASSWORD,NEXTAUTH_SECRET,NEXTAUTH_URL
         script: |
           set -e
           if [ ! -d "$HOME/template_wr" ]; then
@@ -38,10 +40,18 @@ jobs:
             npm install -g pm2
           fi
           
-          # Setup environment
-          echo "ADMIN_USERNAME=$ADMIN_USERNAME" > .env
-          echo "ADMIN_PASSWORD=$ADMIN_PASSWORD" >> .env
-          echo "DATABASE_URL=\"file:./dev.db\"" >> .env
+          # Setup environment (handle ! and special chars safely)
+          if [ -z "$NEXTAUTH_SECRET" ]; then
+            NEXTAUTH_SECRET=$(openssl rand -base64 32)
+            echo "WARN: NEXTAUTH_SECRET was empty, generated ephemeral one"
+          fi
+          cat > .env <<EOF
+ADMIN_USERNAME=$ADMIN_USERNAME
+ADMIN_PASSWORD=$ADMIN_PASSWORD
+DATABASE_URL="file:./dev.db"
+NEXTAUTH_URL=$NEXTAUTH_URL
+NEXTAUTH_SECRET=$NEXTAUTH_SECRET
+EOF
 
           rm -rf node_modules
           npm install
