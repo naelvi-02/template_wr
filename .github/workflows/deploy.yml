@@ -45,13 +45,7 @@ jobs:
             NEXTAUTH_SECRET=$(openssl rand -base64 32)
             echo "WARN: NEXTAUTH_SECRET was empty, generated ephemeral one"
           fi
-          cat > .env <<EOF
-ADMIN_USERNAME=$ADMIN_USERNAME
-ADMIN_PASSWORD=$ADMIN_PASSWORD
-DATABASE_URL="file:./dev.db"
-NEXTAUTH_URL=$NEXTAUTH_URL
-NEXTAUTH_SECRET=$NEXTAUTH_SECRET
-EOF
+          printf 'ADMIN_USERNAME=%s\nADMIN_PASSWORD=%s\nDATABASE_URL="file:./dev.db"\nNEXTAUTH_URL=%s\nNEXTAUTH_SECRET=%s\n' "$ADMIN_USERNAME" "$ADMIN_PASSWORD" "$NEXTAUTH_URL" "$NEXTAUTH_SECRET" > .env
 
           rm -rf node_modules
           npm install
