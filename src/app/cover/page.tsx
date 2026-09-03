@@ -103,7 +103,7 @@ export default function CoverPage(){
   useEffect(()=>{ try{ preloadBgModel(); }catch{} },[]);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const processCache = useRef(new Map<string, { mainCropped: HTMLCanvasElement; mainBbox: any; lighting?: {brightness:number;contrast:number;saturate:number} }>());
-  const rantaiCentersCache = useRef(new Map<string, { x: number; y: number }[]>());
+  const rantaiBoxesCache = useRef(new Map<string, Array<{ centerX: number; centerY: number; xmin: number; ymin: number; xmax: number; ymax: number; boxW: number; boxH: number }>>());
   const renderTimeout = useRef<NodeJS.Timeout|null>(null);
   const stopSignal = useRef(false);
   const pauseSignal = useRef(false);
@@ -130,14 +130,14 @@ export default function CoverPage(){
     reader.readAsDataURL(file);
   }), []);
 
-  const getRantaiJewelryCenters = useCallback(async (file: File, rTot: number): Promise<{ x: number; y: number }[]> => {
+  const getRantaiJewelryBoxes = useCallback(async (file: File, rTot: number) => {
     const key = `${file.name}_${file.size}_${rTot}`;
-    if (rantaiCentersCache.current.has(key)) {
-      return rantaiCentersCache.current.get(key)!;
+    if (rantaiBoxesCache.current.has(key)) {
+      return rantaiBoxesCache.current.get(key)!;
     }
     try {
       const base64 = await compressImageForAI(file);
-      const prompt = `Foto perhiasan ini memuat ${rTot} gelang di atas display roll / tray. Deteksi titik tengah (center x, y) tiap perhiasan berurutan dari nomor 1 sampai ${rTot} (urut sesuai susunan display / dari kiri/atas ke kanan/bawah). Kembalikan HANYA JSON array: [{"index":0,"x":0.25,"y":0.35},...]. Nilai x dan y berupa angka desimal normalisasi 0.0 sampai 1.0.`;
+      const prompt = `Foto perhiasan ini memuat ${rTot} gelang di atas display roll / tray. Deteksi bounding box 2D dari tiap perhiasan berurutan dari nomor 1 sampai ${rTot} (urut sesuai susunan display / dari kiri/atas ke kanan/bawah). Kembalikan HANYA JSON array: [{"index":0,"box_2d":[ymin, xmin, ymax, xmax]},...]. Nilai box_2d dinormalisasi 0 sampai 1000.`;
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -156,25 +156,51 @@ export default function CoverPage(){
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
           if (Array.isArray(parsed) && parsed.length >= rTot) {
-            const centers = parsed.slice(0, rTot).map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
-            rantaiCentersCache.current.set(key, centers);
-            return centers;
+            const boxes = parsed.slice(0, rTot).map((p: any) => {
+              const b = p.box_2d || [200, 200, 800, 800];
+              const ymin = Number(b[0]) / 1000;
+              const xmin = Number(b[1]) / 1000;
+              const ymax = Number(b[2]) / 1000;
+              const xmax = Number(b[3]) / 1000;
+              return {
+                centerX: (xmin + xmax) / 2,
+                centerY: (ymin + ymax) / 2,
+                xmin,
+                ymin,
+                xmax,
+                ymax,
+                boxW: Math.max(0.12, xmax - xmin),
+                boxH: Math.max(0.15, ymax - ymin),
+              };
+            });
+            rantaiBoxesCache.current.set(key, boxes);
+            return boxes;
           }
         }
       }
     } catch (e) {
-      console.warn("AI center detection fallback:", e);
+      console.warn("AI box detection fallback:", e);
     }
-    const fallbackCenters: { x: number; y: number }[] = [];
+    const fallbackBoxes: Array<{ centerX: number; centerY: number; xmin: number; ymin: number; xmax: number; ymax: number; boxW: number; boxH: number }> = [];
     for (let i = 0; i < rTot; i++) {
       const t = (i + 0.5) / rTot;
-      fallbackCenters.push({
-        x: 0.22 + t * 0.56,
-        y: 0.28 + t * 0.44
+      const cx = 0.22 + t * 0.56;
+      const cy = 0.28 + t * 0.44;
+      const w = 0.32;
+      const h = 0.40;
+      fallbackBoxes.push({
+        centerX: cx,
+        centerY: cy,
+        xmin: Math.max(0, cx - w / 2),
+        ymin: Math.max(0, cy - h / 2),
+        xmax: Math.min(1, cx + w / 2),
+        ymax: Math.min(1, cy + h / 2),
+        boxW: w,
+        boxH: h
       });
     }
-    rantaiCentersCache.current.set(key, fallbackCenters);
-    return fallbackCenters;
+    rantaiBoxesCache.current.set(key, fallbackBoxes);
+    return fallbackBoxes;
   }, [compressImageForAI]);
 
   const activeFile = files.find(f=>f.id===activeId) ?? null;
@@ -478,9 +504,18 @@ export default function CoverPage(){
 
       if(isRantaiMulti){
         // Macro Close-Up Mode matching user reference image:
-        // 1. Fetch exact center coordinates of active jewelry
-        const centers = await getRantaiJewelryCenters(target.file, rTot);
-        const center = centers[rIdx] || { x: (rIdx + 0.5) / rTot, y: 0.5 };
+        // 1. Fetch exact bounding box & center of active jewelry from AI Vision
+        const boxes = await getRantaiJewelryBoxes(target.file, rTot);
+        const region = boxes[rIdx] || {
+          centerX: (rIdx + 0.5) / rTot,
+          centerY: 0.5,
+          xmin: (rIdx) / rTot,
+          ymin: 0.2,
+          xmax: (rIdx + 1) / rTot,
+          ymax: 0.8,
+          boxW: 1 / rTot,
+          boxH: 0.6
+        };
 
         // 2. Macro zoom scale: fill template canvas with the roll (~2.15x macro zoom)
         const baseFit = Math.max(logicalW / mainCropped.width, logicalH / mainCropped.height);
@@ -489,8 +524,8 @@ export default function CoverPage(){
         drawH = mainCropped.height * macroScale;
 
         // 3. Pan canvas so active jewelry center is positioned EXACTLY at template center!
-        cx = (logicalW / 2) - (center.x * drawW) + currentX;
-        cy = (logicalH / 2) - (center.y * drawH) + currentY;
+        cx = (logicalW / 2) - (region.centerX * drawW) + currentX;
+        cy = (logicalH / 2) - (region.centerY * drawH) + currentY;
 
         // 4. Create blurred version of entire image
         const blurCanvas = document.createElement("canvas");
@@ -500,28 +535,52 @@ export default function CoverPage(){
         bCtx.filter = "blur(26px)";
         bCtx.drawImage(mainCropped, 0, 0);
 
-        // 5. Draw blurred tray image over the canvas
+        // 5. Draw blurred base image over canvas
         ctx.save();
         ctx.filter = filterStr;
         ctx.drawImage(blurCanvas, cx, cy, drawW, drawH);
         ctx.restore();
 
-        // 6. Reveal active jewelry in 100% sharp focus right in the center!
-        const focusCenterX = logicalW / 2 + currentX;
-        const focusStripW = Math.max(logicalW * 0.30, (drawW / rTot) * 0.90);
-        const clipX = focusCenterX - (focusStripW / 2);
+        // 6. Reveal active jewelry in 100% sharp focus using Soft Feathered Mask (NO BOX, NO HARD EDGE)
+        const sharpLayer = document.createElement("canvas");
+        sharpLayer.width = logicalW;
+        sharpLayer.height = logicalH;
+        const sCtx = sharpLayer.getContext("2d")!;
+        sCtx.filter = filterStr === "none" ? "brightness(1.04) contrast(1.05)" : `${filterStr} brightness(1.02) contrast(1.04)`;
+        sCtx.drawImage(mainCropped, cx, cy, drawW, drawH);
 
-        ctx.save();
-        ctx.beginPath();
-        if (typeof (ctx as any).roundRect === "function") {
-          (ctx as any).roundRect(clipX, 0, focusStripW, logicalH, 20);
-        } else {
-          ctx.rect(clipX, 0, focusStripW, logicalH);
-        }
-        ctx.clip();
-        ctx.filter = filterStr === "none" ? "brightness(1.04) contrast(1.05)" : `${filterStr} brightness(1.02) contrast(1.03)`;
-        ctx.drawImage(mainCropped, cx, cy, drawW, drawH);
-        ctx.restore();
+        const maskCanvas = document.createElement("canvas");
+        maskCanvas.width = logicalW;
+        maskCanvas.height = logicalH;
+        const mCtx = maskCanvas.getContext("2d")!;
+
+        // The active jewelry center on template canvas:
+        const activeCenterX = (logicalW / 2) + currentX;
+        const activeCenterY = (logicalH / 2) + currentY;
+
+        // Soft oval mask radius encompassing the primary jewelry
+        const radiusX = Math.max(logicalW * 0.22, (region.boxW * drawW * 0.65));
+        const radiusY = Math.max(logicalH * 0.38, (region.boxH * drawH * 0.68));
+
+        // Draw soft feathered mask with 45px Gaussian blur so edges dissolve seamlessly
+        mCtx.filter = "blur(45px)";
+        mCtx.fillStyle = "#ffffff";
+        mCtx.beginPath();
+        mCtx.ellipse(activeCenterX, activeCenterY, Math.max(10, radiusX), Math.max(10, radiusY), 0, 0, Math.PI * 2);
+        mCtx.fill();
+
+        // Solid inner core so the center of primary jewelry stays 100% sharp
+        mCtx.beginPath();
+        mCtx.ellipse(activeCenterX, activeCenterY, Math.max(5, radiusX * 0.65), Math.max(5, radiusY * 0.65), 0, 0, Math.PI * 2);
+        mCtx.fill();
+
+        // Mask sharp layer using destination-in
+        sCtx.filter = "none";
+        sCtx.globalCompositeOperation = "destination-in";
+        sCtx.drawImage(maskCanvas, 0, 0);
+
+        // Draw sharp feathered layer over blurred base
+        ctx.drawImage(sharpLayer, 0, 0);
       } else {
         const isNecklace=target.category==="Necklace";
         const isRantaiLike = (kategoriKinds.get(target.folderName||"")?.kind==="single") || isRantaiFolder(target.folderName||"");
