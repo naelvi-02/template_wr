@@ -447,7 +447,7 @@ export default function CoverPage(){
           const elapsed = Date.now()-etaRef.current;
           const avg = elapsed/doneCount;
           const remain = Math.round((avg*(targets.length-doneCount))/1000);
-          setEtaText(`${doneCount}/${targets.length} \u2022 ${remain}s lagi`);
+          setEtaText(`${remain}s lagi`);
         }
         setProcessedCount(doneCount);
       }
