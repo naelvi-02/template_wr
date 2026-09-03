@@ -274,6 +274,7 @@ export default function CoverPage(){
               if(response.ok){
                 const data=await response.json();
                 const reply=data.message?.trim()||"";
+                console.log("[vision per-file]", entry.file.name, "reply=", reply, "matched=", AI_CATEGORIES.find(c=>reply.toLowerCase().includes(c.toLowerCase())));
                 const matched=AI_CATEGORIES.find(c=>reply.toLowerCase().includes(c.toLowerCase()));
                 if(matched) category=matched;
               }
@@ -489,7 +490,15 @@ export default function CoverPage(){
     for(const f of baseTargets){
       if(isRantaiFolder(f.folderName||"")){
         const det = etalaseDetails.get(f.folderName||"");
-        const n = det?.items.size || 1;
+        let n = det?.items.size || 0;
+        if(!n){
+          // txtNFallback: try parse txt via folder grouping fallback - look at etalaseDetails keys
+          const txtNFallback = Array.from(etalaseDetails.values()).reduce((a,v)=> Math.max(a, v.items.size), 0);
+          if(txtNFallback>1) n=txtNFallback;
+        }
+        if(!n) n=5; // for gelang rantai typical 5 per foto if txt missing
+        // log
+        if(isRantaiFolder(f.folderName||"")) console.log("[rantai expand]", f.folderName, "det=", det?.items.size, "n=",n);
         if(n<=1) targets.push(f);
         else { for(let i=0;i<n;i++) targets.push({...f, id: f.id+"-rantai-"+i, rantaiIndex:i, rantaiTotal:n, baseName: f.baseName+" "+(i+1)+"/"+n, _rantaiBaseId: f.id} as any); }
       } else targets.push(f);
