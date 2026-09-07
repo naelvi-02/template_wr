@@ -380,17 +380,103 @@ export function calculateAutoLighting(canvas: HTMLCanvasElement): LightingAdjust
   if (!ctx) return { brightness: 100, contrast: 100, saturate: 100 };
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imgData.data;
-  let totalLuminance = 0, pixelCount = 0;
-  for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 10) { totalLuminance += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]; pixelCount++; }
-  if (pixelCount === 0) return { brightness: 100, contrast: 100, saturate: 100 };
-  const avgLuminance = totalLuminance / pixelCount;
-  let sumOfSquares = 0;
-  for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 10) { const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]; sumOfSquares += Math.pow(lum - avgLuminance, 2); }
-  const stdDev = Math.sqrt(sumOfSquares / pixelCount);
-  let brightness = 100, contrast = 100, saturate = 100;
-  if (avgLuminance < 150) brightness += Math.min(40, (150 - avgLuminance) * 0.8);
-  else if (avgLuminance > 220) brightness -= Math.min(15, (avgLuminance - 220) * 0.5);
-  if (stdDev < 50) { contrast += Math.min(30, (50 - stdDev) * 1.5); saturate += Math.min(20, (50 - stdDev) * 1.0); }
-  else if (stdDev > 80) contrast -= Math.min(10, (stdDev - 80) * 0.3);
-  return { brightness: Math.round(brightness), contrast: Math.round(contrast), saturate: Math.round(saturate) };
+
+  // 256-bin histogram untuk luminansi
+  const hist = new Uint32Array(256);
+  let totalPixels = 0;
+  let totalChroma = 0;
+
+  for (let i = 0; i < data.length; i += 4) {
+    const a = data[i + 3];
+    if (a > 20) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const lum = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+      hist[Math.min(255, Math.max(0, lum))]++;
+      totalPixels++;
+
+      // Metric chroma: selisih max - min kanal warna
+      totalChroma += Math.max(r, g, b) - Math.min(r, g, b);
+    }
+  }
+
+  if (totalPixels === 0) return { brightness: 100, contrast: 100, saturate: 100 };
+
+  // Helper percentile
+  const getPercentile = (pct: number): number => {
+    const target = totalPixels * pct;
+    let acc = 0;
+    for (let val = 0; val < 256; val++) {
+      acc += hist[val];
+      if (acc >= target) return val;
+    }
+    return 255;
+  };
+
+  const p10 = getPercentile(0.10);
+  const p50 = getPercentile(0.50); // Median: eksposur badan utama perhiasan emas
+  const p90 = getPercentile(0.90);
+  const p98 = getPercentile(0.98); // Pantulan kilau (specular highlight)
+
+  // Rasio pixel highlight (>220)
+  let highlightCount = 0;
+  for (let val = 220; val < 256; val++) {
+    highlightCount += hist[val];
+  }
+  const highlightRatio = highlightCount / totalPixels;
+
+  // 1. Smart Brightness dengan Highlight Protection (Anti-Silau / Blown-out)
+  let brightness = 100;
+  const TARGET_MEDIAN = 140; // Standar ideal kecerahan e-commerce perhiasan
+
+  if (p50 < TARGET_MEDIAN) {
+    const rawLift = (TARGET_MEDIAN - p50) * 0.55;
+
+    // Hitung headroom batas aman sebelum kilau memutih (max 248)
+    const highlightHeadroom = Math.max(0, 248 - p98);
+    const maxSafeBoost = Math.max(0, (highlightHeadroom / Math.max(1, p98)) * 100);
+
+    // Batasi kenaikan brightness berdasarkan highlight yang sudah ada
+    let allowedMax = 22;
+    if (highlightRatio > 0.04) {
+      allowedMax = 6; // Sudah banyak kilau pantulan, kenaikan minimal agar tidak pecah
+    } else if (highlightRatio > 0.015) {
+      allowedMax = 12; // Kilau sedang
+    }
+
+    const safeBoost = Math.min(rawLift, maxSafeBoost, allowedMax);
+    brightness += safeBoost;
+  } else if (p50 > 165) {
+    // Foto terlalu terang / over-exposed
+    const rawDrop = (p50 - 165) * 0.4;
+    brightness -= Math.min(15, rawDrop);
+  }
+
+  // 2. Controlled Contrast (Pertahankan kelembutan refleksi emas)
+  let contrast = 100;
+  const dynamicRange = p90 - p10;
+  if (dynamicRange < 75) {
+    // Kurang kontras: beri sedikit aksen, max +8% (tidak membuat bayangan hitam pekat)
+    contrast += Math.min(8, (75 - dynamicRange) * 0.2);
+  } else if (dynamicRange > 160) {
+    // Kontras terlalu keras: redam sedikit
+    contrast -= Math.min(8, (dynamicRange - 160) * 0.15);
+  }
+
+  // 3. True Gold Color Preservation (Kunci Warna Emas Asli)
+  // JANGAN auto-boost saturasi agresif (+20% di kode lama membuat emas jadi kuning kuningan/oranye)
+  let saturate = 100;
+  const avgChroma = totalChroma / totalPixels;
+  if (avgChroma < 15) {
+    saturate = 102; // Foto sangat pucat/abu-abu
+  } else if (avgChroma > 52) {
+    saturate = 98; // Mencegah warna emas terlalu pekat
+  }
+
+  return {
+    brightness: Math.round(brightness),
+    contrast: Math.round(contrast),
+    saturate: Math.round(saturate),
+  };
 }
