@@ -385,6 +385,8 @@ export function calculateAutoLighting(canvas: HTMLCanvasElement): LightingAdjust
   const hist = new Uint32Array(256);
   let totalPixels = 0;
   let totalChroma = 0;
+  let totalGoldHue = 0;
+  let goldPixels = 0;
 
   for (let i = 0; i < data.length; i += 4) {
     const a = data[i + 3];
@@ -397,7 +399,17 @@ export function calculateAutoLighting(canvas: HTMLCanvasElement): LightingAdjust
       totalPixels++;
 
       // Metric chroma: selisih max - min kanal warna
-      totalChroma += Math.max(r, g, b) - Math.min(r, g, b);
+      const maxC = Math.max(r, g, b);
+      const minC = Math.min(r, g, b);
+      const chroma = maxC - minC;
+      totalChroma += chroma;
+
+      // Hitung Hue warna perhiasan emas (R > G >= B)
+      if (chroma > 15 && r > g && g >= b) {
+        const hue = 60 * ((g - b) / chroma);
+        totalGoldHue += hue;
+        goldPixels++;
+      }
     }
   }
 
@@ -427,7 +439,7 @@ export function calculateAutoLighting(canvas: HTMLCanvasElement): LightingAdjust
   const highlightRatio = highlightCount / totalPixels;
 
   // 1. Smart Brightness dengan Highlight Protection (Anti-Silau)
-  // Baseline dinaikkan ke 105% (rentang dinamis 105% - 110% sesuai preferensi optimal katalog)
+  // Baseline 105% - 110% terangkat bersih
   let brightness = 105;
   const TARGET_MEDIAN = 146;
 
@@ -463,14 +475,28 @@ export function calculateAutoLighting(canvas: HTMLCanvasElement): LightingAdjust
     contrast -= Math.min(5, (dynamicRange - 165) * 0.1);
   }
 
-  // 3. Rich Gold Saturation (Target Optimal 120%)
-  // Memberikan warna emas kaya, segar, dan berkilau alami sesuai pencahayaan studio
-  let saturate = 120;
+  // 3. Adaptive Metal Saturation (Emas Putih, Rose Gold, Kuning Cerah, Kuning 8K)
+  // Otomatis menyesuaikan saturasi agar tiap warna logam tampil otentik dan mewah
   const avgChroma = totalChroma / totalPixels;
+  const avgGoldHue = goldPixels > 0 ? totalGoldHue / goldPixels : 30;
+
+  let saturate = 120;
   if (avgChroma < 18) {
-    saturate = 122; // Foto sangat pucat/flat
-  } else if (avgChroma > 55) {
-    saturate = 116; // Emas sudah sangat kuning pekat alami
+    // A. EMAS PUTIH / SILVER:
+    // Wajib netral 100% agar tidak menguning terkena pantulan studio
+    saturate = 100;
+  } else if (avgGoldHue < 20) {
+    // B. ROSE GOLD (Rona kemerahan/pink tembaga):
+    // Dibatasi 114% agar warna rose gold mewah dan elegan tanpa menjadi seperti tembaga kusam
+    saturate = 114;
+  } else if (avgChroma > 58) {
+    // C. KUNING CERAH / KADAR TINGGI (16K / 17K / 24K):
+    // Sudah sangat pekat dari sananya, cukup 112% agar tidak berubah jadi oranye/norak
+    saturate = 112;
+  } else {
+    // D. KUNING STANDAR / 8K:
+    // 120% optimal untuk mengangkat kemilau emas kuning segar & hangat
+    saturate = 120;
   }
 
   return {
