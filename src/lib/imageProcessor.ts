@@ -426,52 +426,51 @@ export function calculateAutoLighting(canvas: HTMLCanvasElement): LightingAdjust
   }
   const highlightRatio = highlightCount / totalPixels;
 
-  // 1. Smart Brightness dengan Highlight Protection (Anti-Silau / Blown-out)
-  let brightness = 100;
-  const TARGET_MEDIAN = 140; // Standar ideal kecerahan e-commerce perhiasan
+  // 1. Smart Brightness dengan Highlight Protection (Anti-Silau)
+  // Baseline dinaikkan ke 105% (rentang dinamis 105% - 110% sesuai preferensi optimal katalog)
+  let brightness = 105;
+  const TARGET_MEDIAN = 146;
 
   if (p50 < TARGET_MEDIAN) {
-    const rawLift = (TARGET_MEDIAN - p50) * 0.55;
+    const rawLift = (TARGET_MEDIAN - p50) * 0.45;
 
     // Hitung headroom batas aman sebelum kilau memutih (max 248)
     const highlightHeadroom = Math.max(0, 248 - p98);
     const maxSafeBoost = Math.max(0, (highlightHeadroom / Math.max(1, p98)) * 100);
 
-    // Batasi kenaikan brightness berdasarkan highlight yang sudah ada
-    let allowedMax = 22;
-    if (highlightRatio > 0.04) {
-      allowedMax = 6; // Sudah banyak kilau pantulan, kenaikan minimal agar tidak pecah
-    } else if (highlightRatio > 0.015) {
-      allowedMax = 12; // Kilau sedang
+    // Batasi kenaikan agar tetap di rentang 105% - 110%
+    let allowedMax = 6;
+    if (highlightRatio > 0.05) {
+      allowedMax = 1; // Sudah sangat berkilau, tahan di ~106%
+    } else if (highlightRatio > 0.02) {
+      allowedMax = 3; // Kilau sedang, tahan di ~108%
     }
 
     const safeBoost = Math.min(rawLift, maxSafeBoost, allowedMax);
     brightness += safeBoost;
-  } else if (p50 > 165) {
+  } else if (p50 > 175) {
     // Foto terlalu terang / over-exposed
-    const rawDrop = (p50 - 165) * 0.4;
-    brightness -= Math.min(15, rawDrop);
+    const rawDrop = (p50 - 175) * 0.35;
+    brightness -= Math.min(10, rawDrop);
   }
 
   // 2. Controlled Contrast (Pertahankan kelembutan refleksi emas)
   let contrast = 100;
   const dynamicRange = p90 - p10;
-  if (dynamicRange < 75) {
-    // Kurang kontras: beri sedikit aksen, max +8% (tidak membuat bayangan hitam pekat)
-    contrast += Math.min(8, (75 - dynamicRange) * 0.2);
-  } else if (dynamicRange > 160) {
-    // Kontras terlalu keras: redam sedikit
-    contrast -= Math.min(8, (dynamicRange - 160) * 0.15);
+  if (dynamicRange < 70) {
+    contrast += Math.min(4, (70 - dynamicRange) * 0.15);
+  } else if (dynamicRange > 165) {
+    contrast -= Math.min(5, (dynamicRange - 165) * 0.1);
   }
 
-  // 3. True Gold Color Preservation (Kunci Warna Emas Asli)
-  // JANGAN auto-boost saturasi agresif (+20% di kode lama membuat emas jadi kuning kuningan/oranye)
-  let saturate = 100;
+  // 3. Rich Gold Saturation (Target Optimal 120%)
+  // Memberikan warna emas kaya, segar, dan berkilau alami sesuai pencahayaan studio
+  let saturate = 120;
   const avgChroma = totalChroma / totalPixels;
-  if (avgChroma < 15) {
-    saturate = 102; // Foto sangat pucat/abu-abu
-  } else if (avgChroma > 52) {
-    saturate = 98; // Mencegah warna emas terlalu pekat
+  if (avgChroma < 18) {
+    saturate = 122; // Foto sangat pucat/flat
+  } else if (avgChroma > 55) {
+    saturate = 116; // Emas sudah sangat kuning pekat alami
   }
 
   return {
