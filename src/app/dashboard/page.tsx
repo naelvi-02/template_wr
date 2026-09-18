@@ -328,7 +328,9 @@ export default function Dashboard() {
         url: URL.createObjectURL(s.file),
         detailUrl: s.detailFile ? URL.createObjectURL(s.detailFile) : undefined,
         resultUrl: s.resultBlob ? URL.createObjectURL(s.resultBlob) : null,
-        status: s.status === "processing" ? "queued" : s.status
+        status: s.status === "processing" || (s.status === "done" && !s.resultBlob)
+          ? "queued"
+          : s.status
       }));
       setFiles(rehydrated);
       if (rehydrated.length > 0) setActiveId(rehydrated[0].id);
@@ -582,7 +584,7 @@ export default function Dashboard() {
       let detailCropped: HTMLImageElement | HTMLCanvasElement | null = null;
       let resDetails: any = null;
 
-      const cacheKey = target.kembarId || target.id;
+      const cacheKey = target.id;
 
       if (false) {
       } else {
